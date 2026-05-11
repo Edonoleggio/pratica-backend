@@ -3,7 +3,7 @@ FROM node:22-alpine AS build
 WORKDIR /app
 RUN apk add --no-cache python3 make g++ sqlite-dev
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 # ─── Runtime stage ───────────────────────────────────────
 FROM node:22-alpine AS runtime
