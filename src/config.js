@@ -1,0 +1,34 @@
+// Centralized config — read once at boot, fail fast on missing required values.
+import 'dotenv/config';
+
+function required(name, fallback) {
+  const v = process.env[name] ?? fallback;
+  if (v === undefined || v === '') {
+    throw new Error(`Missing required env var: ${name}`);
+  }
+  return v;
+}
+
+export const config = {
+  port: parseInt(process.env.PORT || '3000', 10),
+  env: process.env.NODE_ENV || 'development',
+  logLevel: process.env.LOG_LEVEL || 'info',
+  encryptionKey: required('ENCRYPTION_KEY'),
+  allowedOrigins: (process.env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean),
+  dbPath: process.env.DB_PATH || './data/pratica.db',
+  cargos: {
+    baseUrl: process.env.CARGOS_BASE_URL || 'https://cargos.poliziadistato.it/CARGOS_API',
+    username: process.env.CARGOS_USERNAME || '',
+    password: process.env.CARGOS_PASSWORD || '',
+    otpSecret: process.env.CARGOS_OTP_SECRET || '',
+  },
+  agency: {
+    id: process.env.AGENZIA_ID || '',
+    nome: process.env.AGENZIA_NOME || '',
+    luogoCod: parseInt(process.env.AGENZIA_LUOGO_COD || '0', 10),
+    indirizzo: process.env.AGENZIA_INDIRIZZO || '',
+    tel: process.env.AGENZIA_RECAPITO_TEL || '',
+  },
+  defaultOperatorId: process.env.OPERATORE_ID_DEFAULT || 'unknown',
+  questuraPec: process.env.QUESTURA_PEC || '',
+};

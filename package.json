@@ -1,0 +1,32 @@
+{
+  "name": "pratica-backend",
+  "version": "0.1.0",
+  "description": "Backend proxy and storage for Pratica — CARGOS-compliant rental contract manager",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "node src/db/migrate.js",
+    "test": "node --test src/**/*.test.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.5.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
+    "helmet": "^8.0.0",
+    "p-retry": "^6.2.0",
+    "pino": "^9.5.0",
+    "pino-http": "^10.3.0",
+    "undici": "^6.21.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0"
+  }
+}
