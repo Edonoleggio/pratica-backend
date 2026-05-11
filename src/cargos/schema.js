@@ -17,3 +17,10 @@ export const cargosResponseSchema = z.object({
   message: z.string(),
   protocollo: z.string().optional()
 });
+// Funzione per formattare gli errori (necessaria per routes.js)
+export const formatErrors = (zodError) => {
+  return zodError.errors.map(err => ({
+    path: err.path.join('.'),
+    message: err.message
+  }));
+};
