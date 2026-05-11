@@ -223,5 +223,5 @@ export function formatErrors(zodError) {
 // ═══════════════════════════════════════════════════════════════════
 
 export const cargosDraftSchema = cargosRecordSchema.innerType?.()
-  ? cargosRecordSchema._def.schema.partial()
+  : cargosRecordSchema.partial()
   : z.object({}).passthrough();
