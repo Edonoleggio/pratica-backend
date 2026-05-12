@@ -359,6 +359,22 @@ router.post('/contracts/paper', (req, res) => {
   }
 });
 // ═══════════════════════════════════════════════════════════════════
+// DELETE CONTRACT
+// ═══════════════════════════════════════════════════════════════════
+
+router.delete('/contracts/:id', (req, res) => {
+  const c = getContract(req.params.id);
+  if (!c) return res.status(404).json({ ok: false, error: 'not_found' });
+  db.prepare(`DELETE FROM contracts WHERE id = ?`).run(req.params.id);
+  audit({
+    operatorId: operatorOf(req),
+    action: 'contract.deleted',
+    contractId: req.params.id,
+    requestIp: req.ip,
+  });
+  res.json({ ok: true });
+});
+// ═══════════════════════════════════════════════════════════════════
 // KEY-VALUE STORE — sincronizzazione dati tra dispositivi
 // ═══════════════════════════════════════════════════════════════════
 
