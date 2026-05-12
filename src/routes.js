@@ -25,6 +25,8 @@ import {
   getContract,
   listContracts,
   scheduleRetry,
+  getStoreValue,
+  setStoreValue,
 } from './db/index.js';
 import { config } from './config.js';
 import { logger } from './logger.js';
@@ -324,4 +326,17 @@ router.get('/tables/:id', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+// ═══════════════════════════════════════════════════════════════════
+// KEY-VALUE STORE — sincronizzazione dati tra dispositivi
+// ═══════════════════════════════════════════════════════════════════
+
+router.get('/store/:key', (req, res) => {
+  const value = getStoreValue(req.params.key);
+  res.json({ ok: true, key: req.params.key, value: value ?? null });
+});
+
+router.put('/store/:key', (req, res) => {
+  setStoreValue(req.params.key, req.body.value);
+  res.json({ ok: true });
 });
