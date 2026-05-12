@@ -246,7 +246,7 @@ export function scheduleRetry(id, delayMs) {
   ).run(Date.now() + delayMs, Date.now(), id);
 }
 // ═══════════════════════════════════════════════════════════════════
-// Key-Value Store — sincronizzazione dati tra dispositivi
+// KEY-VALUE STORE — sincronizzazione dati tra dispositivi
 // ═══════════════════════════════════════════════════════════════════
 
 export function getStoreValue(key) {
