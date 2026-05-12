@@ -328,6 +328,37 @@ router.get('/tables/:id', async (req, res, next) => {
   }
 });
 // ═══════════════════════════════════════════════════════════════════
+// PAPER CONTRACTS — contratti senza invio CARGOS
+// ═══════════════════════════════════════════════════════════════════
+
+router.post('/contracts/paper', (req, res) => {
+  try {
+    const operatorId = operatorOf(req);
+    const data = req.body;
+    const id = `EDO-${new Date().getFullYear()}-${Date.now()}`;
+
+    saveContract({
+      id,
+      operatorId,
+      vehicleType: data.tipoVeicolo || 'unknown',
+      cargosRequired: false,
+      status: 'paper',
+      payload: data,
+    });
+
+    audit({
+      operatorId,
+      action: 'contract.paper.created',
+      contractId: id,
+      details: { type: data.tipoVeicolo },
+    });
+
+    res.status(201).json({ ok: true, contractId: id, status: 'paper' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+// ═══════════════════════════════════════════════════════════════════
 // KEY-VALUE STORE — sincronizzazione dati tra dispositivi
 // ═══════════════════════════════════════════════════════════════════
 
