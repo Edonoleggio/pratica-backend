@@ -89,6 +89,12 @@ db.exec(`
     cached_at  INTEGER NOT NULL,
     PRIMARY KEY (table_id, code)
   );
+
+  CREATE TABLE IF NOT EXISTS kv_store (
+    key        TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
 `);
 
 // ═══════════════════════════════════════════════════════════════════
@@ -238,4 +244,21 @@ export function scheduleRetry(id, delayMs) {
   db.prepare(
     `UPDATE contracts SET next_attempt_at = ?, updated_at = ? WHERE id = ?`,
   ).run(Date.now() + delayMs, Date.now(), id);
+}
+// ═══════════════════════════════════════════════════════════════════
+// Key-Value Store — sincronizzazione dati tra dispositivi
+// ═══════════════════════════════════════════════════════════════════
+
+export function getStoreValue(key) {
+  const row = db.prepare(`SELECT value_json FROM kv_store WHERE key = ?`).get(key);
+  if (!row) return null;
+  try { return JSON.parse(row.value_json); } catch { return null; }
+}
+
+export function setStoreValue(key, value) {
+  db.prepare(
+    `INSERT INTO kv_store (key, value_json, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`
+  ).run(key, JSON.stringify(value), Date.now());
 }
