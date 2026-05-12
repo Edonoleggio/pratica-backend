@@ -262,3 +262,7 @@ export function setStoreValue(key, value) {
      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`
   ).run(key, JSON.stringify(value), Date.now());
 }
+
+export function deleteContract(id) {
+  db.prepare(`DELETE FROM contracts WHERE id = ?`).run(id);
+}
