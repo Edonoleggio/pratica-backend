@@ -28,7 +28,8 @@ app.use(
   }),
 );
 
-app.use(express.json({ limit: '10mb' }))app.use(pinoHttp({ logger }));
+app.use(express.json({ limit: '10mb' }));
+app.use(pinoHttp({ logger }));
 
 // ─── Rate limiting ───
 // Generous for the agency's own UI; prevents accidental flood on /contracts
