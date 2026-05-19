@@ -12,7 +12,11 @@ import { logger } from './logger.js';
 import { router } from './routes.js';
 import * as cargos from './cargos/client.js';
 import { nextPendingContracts, getContract, setContractStatus, scheduleRetry, audit } from './db/index.js';
-
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import './index.css';           // ← aggiungi questa riga
+import App from './pratica-app-final.jsx';
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 const app = express();
 
 // ─── Security middleware ───
