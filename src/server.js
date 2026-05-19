@@ -28,8 +28,7 @@ app.use(
   }),
 );
 
-app.use(express.json({ limit: '256kb' })); // a single CARGOS record is < 2KB
-app.use(pinoHttp({ logger }));
+app.use(express.json({ limit: '10mb' }))app.use(pinoHttp({ logger }));
 
 // ─── Rate limiting ───
 // Generous for the agency's own UI; prevents accidental flood on /contracts
