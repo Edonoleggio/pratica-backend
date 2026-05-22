@@ -11,14 +11,15 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 import { router } from './routes.js';
 import * as cargos from './cargos/client.js';
-14  import { nextPendingContracts, ... } from './db/index.js';
-15
-16  const app = express();
-17
-18  // ─── Security middleware ───
-19  app.use(helmet());
+import { nextPendingContracts, getContract, setContractStatus, scheduleRetry, audit } from './db/index.js';
+
+const app = express();
+
+// ─── Security middleware ───
+app.use(helmet());
+app.use(
+  cors({
     origin: (origin, cb) => {
-      // Allow same-origin and explicitly listed front-ends
       if (!origin || config.allowedOrigins.includes(origin)) return cb(null, true);
       cb(new Error(`Origin ${origin} not allowed by CORS`));
     },
@@ -30,12 +31,11 @@ app.use(express.json({ limit: '10mb' }));
 app.use(pinoHttp({ logger }));
 
 // ─── Rate limiting ───
-// Generous for the agency's own UI; prevents accidental flood on /contracts
 app.use(
   '/api/contracts',
   rateLimit({
     windowMs: 60_000,
-    max: 60, // 60 req/min — well above realistic counter throughput
+    max: 60,
     standardHeaders: true,
     legacyHeaders: false,
   }),
@@ -71,7 +71,6 @@ app.use('/api', router);
 // ─── 404 + error handlers ───
 app.use((_req, res) => res.status(404).json({ ok: false, error: 'not_found' }));
 
-// eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
   logger.error({ err }, 'unhandled');
   res.status(err.status || 500).json({
@@ -81,16 +80,11 @@ app.use((err, req, res, _next) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// Background worker — drains pending contracts
-//
-// Why async: when the operator clicks "send", we want them to move on
-// to the next customer in <1s. The send to CARGOS happens in the
-// background, with retries. The UI polls or uses SSE to learn the
-// outcome.
+// Background worker
 // ═══════════════════════════════════════════════════════════════════
 
 const WORKER_INTERVAL_MS = 5_000;
-const RETRY_BACKOFFS = [0, 30_000, 120_000, 600_000, 1_800_000]; // 0, 30s, 2m, 10m, 30m
+const RETRY_BACKOFFS = [0, 30_000, 120_000, 600_000, 1_800_000];
 
 async function workerTick() {
   const ids = nextPendingContracts(5);
@@ -161,7 +155,6 @@ const shutdown = (signal) => {
     logger.info('shutdown.complete');
     process.exit(0);
   });
-  // Force exit after 10s if connections hang
   setTimeout(() => process.exit(1), 10_000).unref();
 };
 
