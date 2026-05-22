@@ -24,7 +24,7 @@ app.use('/api/contracts', rateLimit({ windowMs: 60_000, max: 60, standardHeaders
 app.all('/api/rentme-proxy', async (req, res) => {
   try {
     const pathParam = req.query.path || '';
-    const url = new URL(`https://rentmealtervista.duckdns.org/api/rest/${pathParam}`);
+    const url = new URL(`https://rentmealtervista.duckdns.org/api/rest/${pathParam}/`);
     Object.entries(req.query).filter(([k]) => k !== 'path').forEach(([k, v]) => url.searchParams.set(k, v));
     const fetchOptions = { method: req.method, headers: { 'Content-Type': 'application/json' } };
     if (req.method !== 'GET' && req.method !== 'HEAD') { fetchOptions.body = JSON.stringify(req.body); }
