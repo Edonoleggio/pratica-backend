@@ -11,12 +11,12 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 import { router } from './routes.js';
 import * as cargos from './cargos/client.js';
-import { nextPendingContracts, getContract, setContractStatus, scheduleRetry, audit } from './db/index.js';
-
-// ─── Security middleware ───
-app.use(helmet());
-app.use(
-  cors({
+14  import { nextPendingContracts, ... } from './db/index.js';
+15
+16  const app = express();
+17
+18  // ─── Security middleware ───
+19  app.use(helmet());
     origin: (origin, cb) => {
       // Allow same-origin and explicitly listed front-ends
       if (!origin || config.allowedOrigins.includes(origin)) return cb(null, true);
