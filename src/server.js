@@ -44,6 +44,30 @@ app.use(
 // ─── RentMe Proxy ───
 app.all('/api/rentme-proxy', async (req, res) => {
   try {
+    const pathParam = req.query.path || '';
+    const remainingQuery = Object.entries(req.query)
+      .filter(([k]) => k !== 'path')
+      .reduce((acc, [k, v]) => { acc[k] = v; return acc; }, {});
+    const url = new URL(`https://rentme.altervista.org/${pathParam}`);
+    Object.entries(remainingQuery).forEach(([k, v]) => url.searchParams.set(k, v));
+    const fetchOptions = {
+      method: req.method,
+      headers: { 'Content-Type': 'application/json' },
+    };
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      fetchOptions.body = JSON.stringify(req.body);
+    }
+    const upstream = await fetch(url.toString(), fetchOptions);
+    const text = await upstream.text();
+    res.status(upstream.status)
+      .set('Content-Type', upstream.headers.get('content-type') || 'application/json')
+      .send(text);
+  } catch (err) {
+    logger.error({ err }, 'rentme-proxy.error');
+    res.status(502).json({ ok: false, error: 'rentme_proxy_error', detail: err.message });
+  }
+});
+
     const target = 'https://rentme.altervista.org/edox-proxy.php';
     const url = new URL(target);
     Object.entries(req.query).forEach(([k, v]) => url.searchParams.set(k, v));
