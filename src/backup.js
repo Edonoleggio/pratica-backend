@@ -4,15 +4,11 @@ import {
 } from 'fs';
 import { join, resolve } from 'path';
 import { Router } from 'express';
-
 export const backupRouter = Router();
-
 const DATA_DIR   = resolve(process.env.DATA_DIR || './data');
 const BACKUP_DIR = join(DATA_DIR, 'backups');
 const MAX_KEEP   = 20;
-
 const ensureDir = () => mkdirSync(BACKUP_DIR, { recursive: true });
-
 const listFiles = () => {
   ensureDir();
   return readdirSync(BACKUP_DIR)
@@ -20,16 +16,13 @@ const listFiles = () => {
     .sort()
     .reverse();
 };
-
 const prune = () => {
   for (const f of listFiles().slice(MAX_KEEP)) {
     try { unlinkSync(join(BACKUP_DIR, f)); } catch { /* ignore */ }
   }
 };
-
 const safeFilename = f =>
   /^backup-[\d\-T]+\.json$/.test(f);
-
 backupRouter.post('/', (req, res) => {
   const body = req.body;
   if (!body || typeof body !== 'object') {
@@ -47,7 +40,6 @@ backupRouter.post('/', (req, res) => {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
-
 backupRouter.get('/list', (_req, res) => {
   try {
     const backups = listFiles().map(f => {
@@ -64,7 +56,6 @@ backupRouter.get('/list', (_req, res) => {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
-
 backupRouter.get('/latest', (_req, res) => {
   const files = listFiles();
   if (!files.length) return res.status(404).json({ ok: false, error: 'nessun backup trovato' });
@@ -77,7 +68,6 @@ backupRouter.get('/latest', (_req, res) => {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
-
 backupRouter.get('/download/:filename', (req, res) => {
   const { filename } = req.params;
   if (!safeFilename(filename)) {
