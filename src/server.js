@@ -10,7 +10,7 @@ import pinoHttp from 'pino-http';
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { router } from './routes.js';
-import { backupRouter } from './routes/backup.js';
+import { backupRouter } from './backup.js';
 import * as cargos from './cargos/client.js';
 import { nextPendingContracts, getContract, setContractStatus, scheduleRetry, audit } from './db/index.js';
 
