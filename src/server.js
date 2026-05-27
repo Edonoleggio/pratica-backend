@@ -10,6 +10,7 @@ import pinoHttp from 'pino-http';
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { router } from './routes.js';
+import { backupRouter } from './routes/backup.js';
 import * as cargos from './cargos/client.js';
 import { nextPendingContracts, getContract, setContractStatus, scheduleRetry, audit } from './db/index.js';
 
@@ -41,6 +42,7 @@ app.all('/api/rentme-proxy', async (req, res) => {
   }
 });
 
+app.use('/api/backup', backupRouter);
 app.use('/api', router);
 app.use((_req, res) => res.status(404).json({ ok: false, error: 'not_found' }));
 app.use((err, req, res, _next) => { logger.error({ err }, 'unhandled'); res.status(err.status || 500).json({ ok: false, error: err.message || 'internal_error' }); });
