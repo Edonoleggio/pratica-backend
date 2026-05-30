@@ -134,7 +134,8 @@ router.get('/rentme/veicoli', async (req, res, next) => {
       return res.status(502).json({ ok: false, error: 'rentme_upstream', status: upstream.status });
     }
     const all = await upstream.json();
-    const veicoli = (Array.isArray(all) ? all : [])
+    // RentMe risponde { listObject: [...] }. Filtra i soli veicoli di Edonoleggio.
+    const veicoli = (all?.listObject || [])
       .filter((v) => !v.uuidDittaAssociata || v.uuidDittaAssociata === uid);
     res.json({ ok: true, count: veicoli.length, veicoli });
   } catch (err) {
