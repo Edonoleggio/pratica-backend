@@ -241,8 +241,14 @@ export function nextPendingContracts(limit = 10) {
 }
 
 export function scheduleRetry(id, delayMs) {
+  // Incrementa attempt_count ad ogni retry programmato. È l'unico punto che lo
+  // fa nel percorso di retry del worker: setContractStatus incrementa solo su
+  // status='error', quindi senza questo il contatore resterebbe a 0, il backoff
+  // sarebbe fisso al primo valore e il worker non si arrenderebbe mai.
   db.prepare(
-    `UPDATE contracts SET next_attempt_at = ?, updated_at = ? WHERE id = ?`,
+    `UPDATE contracts
+     SET next_attempt_at = ?, attempt_count = attempt_count + 1, updated_at = ?
+     WHERE id = ?`,
   ).run(Date.now() + delayMs, Date.now(), id);
 }
 // ═══════════════════════════════════════════════════════════════════
