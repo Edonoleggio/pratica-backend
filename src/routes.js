@@ -116,6 +116,35 @@ router.get('/health', async (_req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
+// RENTME — elenco veicoli dell'agenzia
+//
+// L'UUID azienda (RENTME_USER_ID) vive solo qui come env, non nel codice
+// del sito. Il backend chiama RentMe e restituisce SOLO i veicoli di
+// Edonoleggio (filtrati per uuidDittaAssociata), così il frontend non
+// deve né conoscere l'UUID né filtrare.
+// ═══════════════════════════════════════════════════════════════════
+
+router.get('/rentme/veicoli', async (req, res, next) => {
+  try {
+    const uid = config.rentme.userId;
+    if (!uid) return res.status(503).json({ ok: false, error: 'rentme_non_configurato' });
+    const url = `${config.rentme.apiBase}/user/getVeicoli/${encodeURIComponent(uid)}`;
+    const upstream = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!upstream.ok) {
+      return res.status(502).json({ ok: false, error: 'rentme_upstream', status: upstream.status });
+    }
+    const all = await upstream.json();
+    // RentMe risponde { listObject: [...] }. Filtra i soli veicoli di Edonoleggio.
+    const veicoli = (all?.listObject || [])
+      .filter((v) => !v.uuidDittaAssociata || v.uuidDittaAssociata === uid);
+    res.json({ ok: true, count: veicoli.length, veicoli });
+  } catch (err) {
+    logger.error({ err: err.message }, 'rentme.veicoli.error');
+    res.status(502).json({ ok: false, error: 'rentme_error', detail: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
 // CONTRACTS — CHECK (dry-run)
 // ═══════════════════════════════════════════════════════════════════
 
