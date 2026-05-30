@@ -22,9 +22,21 @@ app.use(express.json({ limit: '10mb' }));
 app.use(pinoHttp({ logger }));
 app.use('/api/contracts', rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false }));
 
+// Path RentMe consentiti dal proxy. Senza allowlist il proxy inoltrerebbe
+// QUALSIASI path a rentmealtervista.duckdns.org (open relay verso l'host upstream).
+const RENTME_ALLOWED_PATHS = [
+  'veicoli/add/reservetion',
+  'veicoli/delete/reservetion',
+  'veicoli/edit/reservetion',
+  'user/getVeicoli/',
+];
+
 app.all('/api/rentme-proxy', async (req, res) => {
   try {
-    const pathParam = req.query.path || '';
+    const pathParam = String(req.query.path || '');
+    if (!RENTME_ALLOWED_PATHS.some((p) => pathParam.startsWith(p))) {
+      return res.status(403).json({ ok: false, error: 'path_not_allowed' });
+    }
     const url = new URL(`https://rentmealtervista.duckdns.org/api/rest/${pathParam}`);
     Object.entries(req.query).filter(([k]) => k !== 'path').forEach(([k, v]) => url.searchParams.set(k, v));
     const fetchOptions = {
