@@ -23,7 +23,24 @@ const prune = () => {
 };
 const safeFilename = f =>
   /^backup-[\d\-T]+\.json$/.test(f);
-backupRouter.post('/', (req, res) => {
+
+// Auth: se BACKUP_SECRET è impostato, ogni rotta (scrittura E lettura) richiede
+// il token via header Authorization: Bearer <token> oppure query ?token=<token>
+// (il query param serve ai link window.open che non possono impostare header).
+// Senza BACKUP_SECRET il check è saltato per retrocompatibilità, MA gli snapshot
+// contengono PII clienti (documenti, indirizzi): impostare il segreto in produzione.
+const BACKUP_SECRET = process.env.BACKUP_SECRET || '';
+function checkBackupAuth(req, res, next) {
+  if (!BACKUP_SECRET) return next();
+  const auth  = req.headers['authorization'] || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : (req.query.token || '');
+  if (token !== BACKUP_SECRET) {
+    return res.status(401).json({ ok: false, error: 'Token non valido — impostare BACKUP_SECRET e inviare il token' });
+  }
+  next();
+}
+
+backupRouter.post('/', checkBackupAuth, (req, res) => {
   const body = req.body;
   if (!body || typeof body !== 'object') {
     return res.status(400).json({ ok: false, error: 'payload non valido' });
@@ -40,7 +57,7 @@ backupRouter.post('/', (req, res) => {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
-backupRouter.get('/list', (_req, res) => {
+backupRouter.get('/list', checkBackupAuth, (_req, res) => {
   try {
     const backups = listFiles().map(f => {
       const fp = join(BACKUP_DIR, f);
@@ -56,7 +73,7 @@ backupRouter.get('/list', (_req, res) => {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
-backupRouter.get('/latest', (_req, res) => {
+backupRouter.get('/latest', checkBackupAuth, (_req, res) => {
   const files = listFiles();
   if (!files.length) return res.status(404).json({ ok: false, error: 'nessun backup trovato' });
   try {
@@ -68,7 +85,7 @@ backupRouter.get('/latest', (_req, res) => {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
-backupRouter.get('/download/:filename', (req, res) => {
+backupRouter.get('/download/:filename', checkBackupAuth, (req, res) => {
   const { filename } = req.params;
   if (!safeFilename(filename)) {
     return res.status(400).json({ ok: false, error: 'filename non valido' });
