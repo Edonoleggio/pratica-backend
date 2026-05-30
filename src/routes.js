@@ -25,6 +25,7 @@ import {
   getContract,
   listContracts,
   scheduleRetry,
+  deleteContract,
   getStoreValue,
   setStoreValue,
 } from './db/index.js';
@@ -365,7 +366,7 @@ router.post('/contracts/paper', (req, res) => {
 router.delete('/contracts/:id', (req, res) => {
   const c = getContract(req.params.id);
   if (!c) return res.status(404).json({ ok: false, error: 'not_found' });
-  db.prepare(`DELETE FROM contracts WHERE id = ?`).run(req.params.id);
+  deleteContract(req.params.id);
   audit({
     operatorId: operatorOf(req),
     action: 'contract.deleted',
