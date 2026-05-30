@@ -18,6 +18,7 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { cargosRecordSchema, formatErrors } from './cargos/schema.js';
 import { verifyAdminPassword, isAdminAuthConfigured } from './admin-auth.js';
+import * as google from './google.js';
 import * as cargos from './cargos/client.js';
 import { buildCsv, buildFilename, buildPecSubject } from './cargos/csv.js';
 import {
@@ -141,6 +142,63 @@ router.get('/rentme/veicoli', async (req, res, next) => {
   } catch (err) {
     logger.error({ err: err.message }, 'rentme.veicoli.error');
     res.status(502).json({ ok: false, error: 'rentme_error', detail: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// GOOGLE DRIVE — collegamento una-tantum + backup lato server
+// ═══════════════════════════════════════════════════════════════════
+
+// L'utente apre questo: viene mandato a Google per il consenso (una volta sola).
+router.get('/google/connect', (req, res) => {
+  if (!google.isGoogleConfigured()) {
+    return res.status(503).send('Google non configurato sul server (mancano GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI).');
+  }
+  res.redirect(google.buildAuthUrl());
+});
+
+// Google rimanda qui col code: lo scambiamo per il refresh token e lo salviamo.
+router.get('/google/callback', async (req, res, next) => {
+  try {
+    const code = req.query.code;
+    if (!code) return res.status(400).send('Codice mancante.');
+    const tokens = await google.exchangeCodeForTokens(code);
+    if (tokens.refresh_token) {
+      google.saveRefreshToken(tokens.refresh_token);
+      audit({ operatorId: operatorOf(req), action: 'google.connected', requestIp: req.ip });
+    }
+    // Pagina semplice di conferma; l'utente torna all'app.
+    res.set('Content-Type', 'text/html; charset=utf-8').send(
+      `<html><body style="font-family:sans-serif;text-align:center;padding:48px">
+       <h2>✅ Google Drive collegato</h2>
+       <p>Il backup automatico su Drive è attivo. Puoi chiudere questa scheda.</p>
+       <p><a href="${config.google.appUrl}">Torna a Pratica</a></p>
+       </body></html>`,
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Stato del collegamento (per il pulsante nel sito).
+router.get('/google/status', (_req, res) => {
+  res.json({ ok: true, configured: google.isGoogleConfigured(), connected: google.isConnected() });
+});
+
+// Carica un backup su Drive (il sito invia i dati; l'upload lo fa il server,
+// così non serve nessun popup Google nel browser).
+router.post('/google/backup', async (req, res, next) => {
+  try {
+    if (!google.isConnected()) return res.status(409).json({ ok: false, error: 'google_non_collegato' });
+    const data = req.body;
+    if (!data || typeof data !== 'object') return res.status(400).json({ ok: false, error: 'payload_non_valido' });
+    const filename = `edonoleggio-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    const result = await google.uploadToDrive(filename, JSON.stringify(data));
+    audit({ operatorId: operatorOf(req), action: 'google.backup', details: { fileId: result.id } });
+    res.json({ ok: true, fileId: result.id, filename: result.name });
+  } catch (err) {
+    logger.error({ err: err.message }, 'google.backup.error');
+    res.status(502).json({ ok: false, error: 'google_backup_error', detail: err.message });
   }
 });
 

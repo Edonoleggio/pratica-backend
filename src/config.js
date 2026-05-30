@@ -36,4 +36,12 @@ export const config = {
     userId: process.env.RENTME_USER_ID || '',
     apiBase: process.env.RENTME_API_BASE || 'https://rentmealtervista.duckdns.org/api/rest',
   },
+  // Google Drive: OAuth lato server (refresh token) per backup automatici senza popup.
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID || '',
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+    redirectUri: process.env.GOOGLE_REDIRECT_URI || '',
+    // Dove rimandare l'utente dopo il collegamento (il sito). Default: frontend Render.
+    appUrl: process.env.APP_URL || 'https://pratica-frontend.onrender.com',
+  },
 };
