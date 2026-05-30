@@ -31,4 +31,9 @@ export const config = {
   },
   defaultOperatorId: process.env.OPERATORE_ID_DEFAULT || 'unknown',
   questuraPec: process.env.QUESTURA_PEC || '',
+  // RentMe: l'UUID azienda resta solo qui (env), non più nel codice del sito.
+  rentme: {
+    userId: process.env.RENTME_USER_ID || '',
+    apiBase: process.env.RENTME_API_BASE || 'https://rentmealtervista.duckdns.org/api/rest',
+  },
 };
