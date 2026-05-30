@@ -14,8 +14,10 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { cargosRecordSchema, formatErrors } from './cargos/schema.js';
+import { verifyAdminPassword, isAdminAuthConfigured } from './admin-auth.js';
 import * as cargos from './cargos/client.js';
 import { buildCsv, buildFilename, buildPecSubject } from './cargos/csv.js';
 import {
@@ -65,6 +67,38 @@ router.post('/auth/login', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// ADMIN — verifica password "Modalità Admin" lato server
+//
+// La password admin non vive più nel browser: il frontend invia la
+// password digitata e il server risponde solo ok/ko, confrontandola con
+// l'hash scrypt in ADMIN_PASSWORD_HASH. Rate-limit anti-brute-force.
+// ═══════════════════════════════════════════════════════════════════
+
+const adminVerifyLimiter = rateLimit({
+  windowMs: 5 * 60_000,        // 5 minuti
+  max: 10,                     // max 10 tentativi per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'troppi_tentativi', hint: 'Riprova tra qualche minuto' },
+});
+
+router.post('/auth/admin-verify', adminVerifyLimiter, (req, res) => {
+  if (!isAdminAuthConfigured()) {
+    // Hash non impostato sul server → il frontend ricadrà sul comportamento legacy.
+    return res.status(503).json({ ok: false, error: 'admin_auth_non_configurato' });
+  }
+  const password = String(req.body?.password || '');
+  const ok = verifyAdminPassword(password);
+  audit({
+    operatorId: operatorOf(req),
+    action: ok ? 'admin.verify.ok' : 'admin.verify.fail',
+    requestIp: req.ip,
+  });
+  if (!ok) return res.status(401).json({ ok: false });
+  res.json({ ok: true });
 });
 
 // ═══════════════════════════════════════════════════════════════════
