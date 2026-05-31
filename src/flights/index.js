@@ -100,6 +100,18 @@ async function fetchFR24(dateISO) {
   }
 }
 
+// Normalizza lo stato AeroDataBox (Unknown/Expected/EnRoute/Approaching/
+// Arrived/Departed/Delayed/Canceled/Diverted...) allo schema comune.
+function mapAdbStatus(s) {
+  const t = (s || '').toLowerCase();
+  if (t.includes('cancel')) return 'cancelled';
+  if (t.includes('arriv') || t.includes('land')) return 'landed';
+  if (t.includes('divert')) return 'cancelled';
+  if (t.includes('delay')) return 'delayed';
+  if (t.includes('enroute') || t.includes('en route') || t.includes('approach') || t.includes('depart')) return 'enroute';
+  return 'scheduled';   // Expected / Unknown / Scheduled
+}
+
 // ─── Fonte 2: AeroDataBox (RapidAPI) ────────────────────────────────
 // GET /flights/airports/icao/{icao}/{from}/{to}?direction=Arrival
 // Max 12h per chiamata → due chiamate per coprire la giornata.
@@ -112,14 +124,20 @@ async function fetchAeroDataBox(dateISO) {
     [new Date(`${dateISO}T00:00:00Z`), new Date(`${dateISO}T11:59:00Z`)],
     [new Date(`${dateISO}T12:00:00Z`), new Date(`${dateISO}T23:59:00Z`)],
   ];
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   try {
     const all = [];
-    for (const [from, to] of halves) {
+    for (let h = 0; h < halves.length; h++) {
+      const [from, to] = halves[h];
+      // Pausa tra le due chiamate: il free tier RapidAPI limita ~1 req/s.
+      if (h > 0) await sleep(1300);
       const url = `https://${host}/flights/airports/icao/${ICAO()}/${fmt(from)}/${fmt(to)}`
         + `?direction=Arrival&withLeg=true&withCancelled=true&withCodeshared=false&withLocation=false`;
-      const r = await withTimeout(fetch(url, {
+      const doFetch = () => withTimeout(fetch(url, {
         headers: { 'X-RapidAPI-Key': key, 'X-RapidAPI-Host': host },
       }), SOURCE_TIMEOUT_MS, 'adb');
+      let r = await doFetch();
+      if (r.status === 429) { await sleep(1500); r = await doFetch(); }   // retry una volta su rate-limit
       if (!r.ok) continue;
       const json = await r.json();
       for (const a of (json?.arrivals || [])) {
@@ -135,9 +153,7 @@ async function fetchAeroDataBox(dateISO) {
           scheduledArrival: sched.utc ? sched.utc.replace(' ', 'T') : (typeof sched === 'string' ? sched : null),
           estimatedArrival: est.utc ? est.utc.replace(' ', 'T') : null,
           actualArrival: null,
-          status: (a.status || '').toLowerCase().includes('cancel') ? 'cancelled'
-            : (a.status || '').toLowerCase().includes('arriv') ? 'landed'
-            : (a.status || 'scheduled').toLowerCase(),
+          status: mapAdbStatus(a.status),
           sources: ['aerodatabox'],
         });
       }
