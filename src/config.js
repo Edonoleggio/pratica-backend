@@ -44,4 +44,20 @@ export const config = {
     // Dove rimandare l'utente dopo il collegamento (il sito). Default: frontend Render.
     appUrl: process.env.APP_URL || 'https://pratica-frontend.onrender.com',
   },
+  // Voli aeroporto Lampedusa — aggregatore multi-fonte (vedi flights/index.js).
+  // Ogni fonte è attiva solo se la relativa chiave è presente.
+  flights: {
+    airportIcao: process.env.LAMPEDUSA_ICAO || 'LICD',
+    airportIata: process.env.LAMPEDUSA_IATA || 'LMP',
+    // FlightRadar24 API (separata dall'abbonamento da app): https://fr24api.flightradar24.com
+    fr24Token: process.env.FR24_API_TOKEN || '',
+    fr24BaseUrl: process.env.FR24_BASE_URL || 'https://fr24api.flightradar24.com',
+    // AeroDataBox via RapidAPI
+    aeroDataBoxKey: process.env.AERODATABOX_KEY || '',
+    // OpenSky Network (OAuth2 client credentials; opzionale, fallback)
+    openSky: {
+      clientId: process.env.OPENSKY_CLIENT_ID || '',
+      clientSecret: process.env.OPENSKY_CLIENT_SECRET || '',
+    },
+  },
 };

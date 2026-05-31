@@ -34,6 +34,7 @@ import {
 } from './db/index.js';
 import { config } from './config.js';
 import { logger } from './logger.js';
+import { getLampedusaArrivals } from './flights/index.js';
 
 export const router = Router();
 
@@ -142,6 +143,23 @@ router.get('/rentme/veicoli', async (req, res, next) => {
   } catch (err) {
     logger.error({ err: err.message }, 'rentme.veicoli.error');
     res.status(502).json({ ok: false, error: 'rentme_error', detail: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// VOLI — arrivi all'aeroporto di Lampedusa (aggregatore multi-fonte)
+// GET /api/voli/lampedusa[?date=YYYY-MM-DD]
+// Risponde sempre 200 con { ok, flights[], sources{}, configured } anche se
+// nessuna fonte è configurata (configured:false) → il frontend degrada pulito.
+// ═══════════════════════════════════════════════════════════════════
+router.get('/voli/lampedusa', async (req, res) => {
+  try {
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : undefined;
+    const data = await getLampedusaArrivals(date);
+    res.json(data);
+  } catch (err) {
+    logger.error({ err: err.message }, 'voli.lampedusa.error');
+    res.status(502).json({ ok: false, error: 'voli_error', detail: err.message });
   }
 });
 
