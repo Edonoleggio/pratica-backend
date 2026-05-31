@@ -38,6 +38,13 @@ function dayWindowUtc(dateISO) {
   const to = new Date(`${dateISO}T23:59:59Z`);
   return { from, to };
 }
+function utcIso(s) {
+  // Normalizza un datetime a ISO UTC. FR24 manda "2026-05-30T06:15:10" (UTC senza Z).
+  if (!s) return null;
+  const str = String(s).trim();
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(str)) return str;   // ha già tz
+  return str.replace(' ', 'T') + 'Z';
+}
 function withTimeout(promise, ms, label) {
   return Promise.race([
     promise,
@@ -55,8 +62,9 @@ async function fetchFR24(dateISO) {
   const base = config.flights.fr24BaseUrl || 'https://fr24api.flightradar24.com';
   const { from, to } = dayWindowUtc(dateISO);
   const params = new URLSearchParams({
-    flight_datetime_from: from.toISOString().slice(0, 19) + 'Z',
-    flight_datetime_to: to.toISOString().slice(0, 19) + 'Z',
+    // FR24 vuole "YYYY-MM-DDTHH:mm:ss" UTC SENZA suffisso 'Z' (con 'Z' → HTTP 400).
+    flight_datetime_from: from.toISOString().slice(0, 19),
+    flight_datetime_to: to.toISOString().slice(0, 19),
     airports: `inbound:${ICAO()}`,   // arrivi a Lampedusa
   });
   const url = `${base}/api/flight-summary/light?${params.toString()}`;
@@ -71,16 +79,19 @@ async function fetchFR24(dateISO) {
     if (!r.ok) return { enabled: true, ok: false, error: `http_${r.status}`, flights: [] };
     const json = await r.json();
     const rows = json?.data || json?.flights || [];
+    // Schema flight-summary/light: { flight, callsign, operating_as, painted_as,
+    // orig_icao, datetime_takeoff, datetime_landed, ... }. I datetime sono UTC
+    // SENZA suffisso 'Z' → lo aggiungiamo per farli interpretare come UTC.
     const flights = rows.map((f) => ({
       flightNumber: normFlightNo(f.flight || f.flight_number || f.callsign),
       airline: f.operating_as || f.painted_as || f.airline || '',
       originIata: f.orig_iata || f.origin_iata || '',
       originIcao: f.orig_icao || f.origin_icao || '',
       originName: f.orig_name || '',
-      scheduledArrival: f.datetime_scheduled_arrival || f.scheduled_arrival || null,
-      estimatedArrival: f.datetime_estimated_arrival || f.estimated_arrival || null,
-      actualArrival: f.datetime_landed || f.datetime_arrival || null,
-      status: f.datetime_landed ? 'landed' : (f.status || 'scheduled'),
+      scheduledArrival: utcIso(f.datetime_scheduled_arrival || f.scheduled_arrival),
+      estimatedArrival: utcIso(f.datetime_estimated_arrival || f.estimated_arrival),
+      actualArrival: utcIso(f.datetime_landed || f.datetime_arrival),
+      status: f.datetime_landed ? 'landed' : (f.datetime_takeoff ? 'enroute' : 'scheduled'),
       sources: ['fr24'],
     })).filter((f) => f.flightNumber || f.originIata || f.originIcao);
     return { enabled: true, ok: true, flights };
