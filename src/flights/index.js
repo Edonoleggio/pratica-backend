@@ -91,6 +91,7 @@ async function fetchFR24(dateISO) {
       scheduledArrival: utcIso(f.datetime_scheduled_arrival || f.scheduled_arrival),
       estimatedArrival: utcIso(f.datetime_estimated_arrival || f.estimated_arrival),
       actualArrival: utcIso(f.datetime_landed || f.datetime_arrival),
+      aircraftModel: f.type || '',   // FR24: codice tipo ICAO (es. A20N)
       status: f.datetime_landed ? 'landed' : (f.datetime_takeoff ? 'enroute' : 'scheduled'),
       sources: ['fr24'],
     })).filter((f) => f.flightNumber || f.originIata || f.originIcao);
@@ -152,7 +153,8 @@ async function fetchAeroDataBox(dateISO) {
           originName: a.departure?.airport?.name || a.movement?.airport?.name || '',
           scheduledArrival: sched.utc ? sched.utc.replace(' ', 'T') : (typeof sched === 'string' ? sched : null),
           estimatedArrival: est.utc ? est.utc.replace(' ', 'T') : null,
-          actualArrival: null,
+          actualArrival: (mv.runwayTime?.utc) ? mv.runwayTime.utc.replace(' ', 'T') : null,
+          aircraftModel: a.aircraft?.model || '',   // es. "Airbus A320"
           status: mapAdbStatus(a.status),
           sources: ['aerodatabox'],
         });
@@ -226,6 +228,7 @@ function mergeFlights(lists) {
       scheduledArrival: pick(cur.scheduledArrival, f.scheduledArrival),
       estimatedArrival: pick(cur.estimatedArrival, f.estimatedArrival),
       actualArrival: pick(cur.actualArrival, f.actualArrival),
+      aircraftModel: pick(cur.aircraftModel, f.aircraftModel),
       // status: preferisci lo stato "più avanzato"
       status: rankStatus(f.status) > rankStatus(cur.status) ? f.status : cur.status,
       sources: [...new Set([...cur.sources, ...f.sources])],
