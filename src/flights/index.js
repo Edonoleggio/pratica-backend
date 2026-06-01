@@ -184,9 +184,9 @@ function mapAviationStackStatus(s) {
 async function fetchAviationStack(dateISO) {
   const key = config.flights.aviationStackKey;
   if (!key) return { enabled: false };
-  // Cache interna lunga (quota free)
+  // Cache interna lunga (quota free), keyed per data: a mezzanotte non riusa ieri.
   const ttl = Math.max(10, config.flights.aviationStackCacheMin) * 60 * 1000;
-  if (_aviationStackCache && Date.now() - _aviationStackCache.at < ttl) {
+  if (_aviationStackCache && _aviationStackCache.date === dateISO && Date.now() - _aviationStackCache.at < ttl) {
     return { enabled: true, ok: true, flights: _aviationStackCache.flights, cached: true };
   }
   const base = 'http://api.aviationstack.com/v1/flights';
@@ -198,24 +198,40 @@ async function fetchAviationStack(dateISO) {
     const json = await r.json();
     if (json?.error) return { enabled: true, ok: false, error: json.error?.code || 'api_error', flights: [] };
     const rows = Array.isArray(json?.data) ? json.data : [];
-    const flights = rows.map((f) => {
-      const arr = f.arrival || {};
-      const dep = f.departure || {};
-      return {
-        flightNumber: normFlightNo(f.flight?.iata || f.flight?.icao || f.flight?.number),
-        airline: f.airline?.name || '',
-        originIata: dep.iata || '',
-        originIcao: dep.icao || '',
-        originName: dep.airport || '',
-        scheduledArrival: utcIso(arr.scheduled),
-        estimatedArrival: utcIso(arr.estimated || arr.scheduled),
-        actualArrival: utcIso(arr.actual),
-        aircraftModel: f.aircraft?.iata || '',
-        status: mapAviationStackStatus(f.flight_status),
-        sources: ['aviationstack'],
-      };
-    }).filter((f) => f.flightNumber || f.originIata || f.originIcao);
-    _aviationStackCache = { at: Date.now(), flights };
+    // AviationStack (arr_iata) ritorna PIÙ GIORNI insieme (ieri+oggi) e a volte
+    // righe duplicate → "troppi voli". Filtra al SOLO giorno richiesto e dedup
+    // per numero volo + orario programmato.
+    const seen = new Set();
+    const flights = rows
+      .filter((f) => !dateISO || !f.flight_date || f.flight_date === dateISO)
+      .map((f) => {
+        const arr = f.arrival || {};
+        const dep = f.departure || {};
+        return {
+          flightNumber: normFlightNo(f.flight?.iata || f.flight?.icao || f.flight?.number),
+          airline: f.airline?.name || '',
+          originIata: dep.iata || '',
+          originIcao: dep.icao || '',
+          originName: dep.airport || '',
+          scheduledArrival: utcIso(arr.scheduled),
+          estimatedArrival: utcIso(arr.estimated || arr.scheduled),
+          actualArrival: utcIso(arr.actual),
+          aircraftModel: f.aircraft?.iata || '',
+          status: mapAviationStackStatus(f.flight_status),
+          sources: ['aviationstack'],
+        };
+      })
+      .filter((f) => f.flightNumber || f.originIata || f.originIcao)
+      .filter((f) => {
+        // Dedup per ORIGINE + orario: accorpa i codeshare (stesso volo fisico con
+        // due numeri, es. W66343/W46343 da Milano alle 18:55). A Lampedusa due voli
+        // diversi dalla stessa origine allo stesso minuto non esistono → sicuro.
+        const k = `${f.originIata || f.originIcao || f.flightNumber}|${(f.scheduledArrival || '').slice(0, 16)}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+    _aviationStackCache = { at: Date.now(), date: dateISO, flights };
     return { enabled: true, ok: true, flights };
   } catch (err) {
     return { enabled: true, ok: false, error: err.message, flights: [] };
