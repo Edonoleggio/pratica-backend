@@ -7,8 +7,10 @@
 //
 // Fonti (ognuna attiva solo se le sue credenziali sono nelle env):
 //   1. FlightRadar24 API   — primaria   (config.flights.fr24Token)
-//   2. AeroDataBox (RapidAPI) — secondaria (config.flights.aeroDataBoxKey)
-//   3. OpenSky Network     — fallback   (config.flights.openSky.* o anonimo)
+//   2. AeroDataBox (RapidAPI) — orari+ETA (config.flights.aeroDataBoxKey)
+//   3. AviationStack       — stato reale (config.flights.aviationStackKey)
+//   4. AirLabs             — stato reale, free generoso (config.flights.airLabsKey)
+//   5. OpenSky Network     — fallback   (config.flights.openSky.* o anonimo)
 //
 // Schema normalizzato di un volo:
 //   { flightNumber, airline, originIata, originIcao, originName,
@@ -238,6 +240,68 @@ async function fetchAviationStack(dateISO) {
   }
 }
 
+// ─── Fonte: AirLabs (airlabs.co/api/v9/schedules) — stato reale ─────
+// Free tier generoso (~1000-2000 chiamate/mese). Schedules è "tempo reale"
+// (giorno corrente): orari, ETA e stato (scheduled/en-route/landed/cancelled).
+// Restituisce solo codici IATA/ICAO per origine (niente nome): il nome lo
+// riempiono le altre fonti nel merge. Cache interna lunga per la quota.
+function mapAirLabsStatus(s) {
+  const t = (s || '').toLowerCase();
+  if (t === 'landed') return 'landed';
+  if (t === 'en-route' || t === 'enroute' || t === 'active') return 'enroute';
+  if (t === 'cancelled' || t === 'canceled') return 'cancelled';
+  if (t === 'diverted' || t === 'redirected' || t === 'incident') return 'cancelled';
+  return 'scheduled';   // scheduled / unknown
+}
+let _airLabsCache = null;
+async function fetchAirLabs(dateISO) {
+  const key = config.flights.airLabsKey;
+  if (!key) return { enabled: false };
+  const ttl = Math.max(10, config.flights.airLabsCacheMin) * 60 * 1000;
+  if (_airLabsCache && _airLabsCache.date === dateISO && Date.now() - _airLabsCache.at < ttl) {
+    return { enabled: true, ok: true, flights: _airLabsCache.flights, cached: true };
+  }
+  const base = 'https://airlabs.co/api/v9/schedules';
+  const params = new URLSearchParams({ api_key: key, arr_iata: IATA() });
+  const url = `${base}?${params.toString()}`;
+  try {
+    const r = await withTimeout(fetch(url), SOURCE_TIMEOUT_MS, 'airlabs');
+    if (!r.ok) return { enabled: true, ok: false, error: `http_${r.status}`, flights: [] };
+    const json = await r.json();
+    if (json?.error) return { enabled: true, ok: false, error: json.error?.code || json.error?.message || 'api_error', flights: [] };
+    const rows = Array.isArray(json?.response) ? json.response : [];
+    const seen = new Set();
+    const flights = rows
+      .map((f) => ({
+        flightNumber: normFlightNo(f.flight_iata || f.flight_icao || f.flight_number),
+        airline: '',
+        originIata: f.dep_iata || '',
+        originIcao: f.dep_icao || '',
+        originName: '',
+        scheduledArrival: utcIso(f.arr_time_utc || f.arr_time),
+        estimatedArrival: utcIso(f.arr_estimated_utc || f.arr_estimated || f.arr_time_utc || f.arr_time),
+        actualArrival: utcIso(f.arr_actual_utc || f.arr_actual),
+        aircraftModel: f.aircraft_icao || '',
+        status: mapAirLabsStatus(f.status),
+        sources: ['airlabs'],
+      }))
+      // schedules è "oggi": scarta righe di altri giorni (quando l'orario c'è)
+      .filter((f) => !f.scheduledArrival || f.scheduledArrival.slice(0, 10) === dateISO)
+      .filter((f) => f.flightNumber || f.originIata || f.originIcao)
+      .filter((f) => {
+        // dedup per origine+orario (accorpa codeshare, come AviationStack)
+        const k = `${f.originIata || f.originIcao || f.flightNumber}|${(f.scheduledArrival || '').slice(0, 16)}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+    _airLabsCache = { at: Date.now(), date: dateISO, flights };
+    return { enabled: true, ok: true, flights };
+  } catch (err) {
+    return { enabled: true, ok: false, error: err.message, flights: [] };
+  }
+}
+
 // ─── Fonte 3: OpenSky Network (fallback, solo voli atterrati) ───────
 let _openSkyToken = null;
 async function openSkyAuth() {
@@ -341,26 +405,28 @@ export async function getLampedusaArrivals(dateISO) {
     return { ...cached.payload, cached: true };
   }
 
-  const [fr24, adb, avs, opensky] = await Promise.all([
+  const [fr24, adb, avs, air, opensky] = await Promise.all([
     fetchFR24(date).catch((e) => ({ enabled: true, ok: false, error: e.message, flights: [] })),
     fetchAeroDataBox(date).catch((e) => ({ enabled: true, ok: false, error: e.message, flights: [] })),
     fetchAviationStack(date).catch((e) => ({ enabled: true, ok: false, error: e.message, flights: [] })),
+    fetchAirLabs(date).catch((e) => ({ enabled: true, ok: false, error: e.message, flights: [] })),
     fetchOpenSky(date).catch((e) => ({ enabled: true, ok: false, error: e.message, flights: [] })),
   ]);
 
-  const flights = mergeFlights([fr24.flights || [], adb.flights || [], avs.flights || [], opensky.flights || []]);
+  const flights = mergeFlights([fr24.flights || [], adb.flights || [], avs.flights || [], air.flights || [], opensky.flights || []]);
   const openSkyHasCreds = !!(config.flights.openSky.clientId && config.flights.openSky.clientSecret);
   const sources = {
     fr24: { enabled: !!fr24.enabled, ok: !!fr24.ok, count: (fr24.flights || []).length, error: fr24.error },
     aerodatabox: { enabled: !!adb.enabled, ok: !!adb.ok, count: (adb.flights || []).length, error: adb.error },
     aviationstack: { enabled: !!avs.enabled, ok: !!avs.ok, count: (avs.flights || []).length, error: avs.error, cached: !!avs.cached },
+    airlabs: { enabled: !!air.enabled, ok: !!air.ok, count: (air.flights || []).length, error: air.error, cached: !!air.cached },
     // OpenSky viene SEMPRE tentato (anche anonimo) ma lo consideriamo "configurato"
     // solo con credenziali OAuth2; resta un fallback per i voli atterrati.
     opensky: { enabled: openSkyHasCreds, ok: !!opensky.ok, count: (opensky.flights || []).length, error: opensky.error },
   };
   // "configured" = c'è almeno una chiave seria, oppure è arrivato qualche volo.
   const anyConfigured = !!config.flights.fr24Token || !!config.flights.aeroDataBoxKey
-    || !!config.flights.aviationStackKey || openSkyHasCreds || flights.length > 0;
+    || !!config.flights.aviationStackKey || !!config.flights.airLabsKey || openSkyHasCreds || flights.length > 0;
 
   const payload = {
     ok: true,
