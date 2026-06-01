@@ -100,9 +100,40 @@ export async function getFreshAccessToken() {
   return data.access_token;
 }
 
-// Carica un contenuto JSON su Google Drive (upload multipart).
+// Cerca un file già creato dall'app con questo nome (scope drive.file → vede solo
+// i propri file). Ritorna l'id se esiste, altrimenti null.
+async function findDriveFileByName(accessToken, name) {
+  const safe = String(name).replace(/'/g, "\\'");
+  const q = encodeURIComponent(`name='${safe}' and trashed=false`);
+  const url = `https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)&pageSize=1`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data?.files?.[0]?.id || null;
+}
+
+// Carica un contenuto JSON su Google Drive.
+// Se esiste già un file con lo STESSO nome (es. backup del giorno), ne AGGIORNA il
+// contenuto invece di crearne uno nuovo → niente doppioni su Drive (un file per
+// giorno, l'ultimo backup vince). Se non esiste, lo crea (upload multipart).
 export async function uploadToDrive(filename, contentString) {
   const accessToken = await getFreshAccessToken();
+
+  // 1) File già presente? → aggiorna il contenuto (PATCH media).
+  let existingId = null;
+  try { existingId = await findDriveFileByName(accessToken, filename); } catch { /* fallback: create */ }
+  if (existingId) {
+    const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${existingId}?uploadType=media`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: contentString,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(`Google Drive update error: ${JSON.stringify(data)}`);
+    return data; // { id, name, ... }
+  }
+
+  // 2) Nuovo file → upload multipart (metadata + contenuto).
   const boundary = 'edo-boundary-' + Date.now();
   const metadata = { name: filename, mimeType: 'application/json' };
   const body =
