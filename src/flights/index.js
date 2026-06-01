@@ -282,12 +282,28 @@ async function fetchOpenSky(dateISO) {
 }
 
 // ─── Merge & dedup ──────────────────────────────────────────────────
+// Chiave "volo fisico" che ACCORPA i codeshare tra fonti diverse: stesso volo
+// con due numeri (es. W46137/W66137 da Roma) condivide origine + suffisso numerico.
+// Fonti diverse a volte danno numeri/orari diversi per lo stesso volo, quindi NON
+// si può usare l'orario: origine (IATA/ICAO) + cifre del numero volo è affidabile
+// (a Lampedusa non esistono due voli diversi dalla stessa origine con lo stesso
+// suffisso numerico). Fallback all'orario se manca numero o origine.
+function flightMergeKey(f) {
+  // Estrae il NUMERO di volo dopo il codice IATA (2 char). I codeshare Wizz
+  // hanno codice diverso ma stesso numero: W4-6137 e W6-6137 → entrambi 6137.
+  const fn = (f.flightNumber || '').toUpperCase();
+  const m = fn.match(/^[A-Z0-9]{2}(\d{1,4})$/);
+  const orig = (f.originIata || f.originIcao || '').toUpperCase().trim();
+  if (m && orig) return `${orig}#${m[1]}`;
+  return fn
+    || `${f.originIcao || f.originIata}|${(f.scheduledArrival || f.estimatedArrival || '').slice(0, 13)}`;
+}
+
 function mergeFlights(lists) {
   const byKey = new Map();
   const pick = (a, b) => a || b;     // preferisci il primo valore non-nullo
   for (const f of lists.flat()) {
-    const key = f.flightNumber
-      || `${f.originIcao || f.originIata}|${(f.scheduledArrival || f.estimatedArrival || '').slice(0, 13)}`;
+    const key = flightMergeKey(f);
     if (!key) continue;
     const cur = byKey.get(key);
     if (!cur) { byKey.set(key, { ...f, sources: [...f.sources] }); continue; }
