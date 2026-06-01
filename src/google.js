@@ -66,6 +66,11 @@ export function saveRefreshToken(rt) {
 }
 
 export function getRefreshToken() {
+  // 1) Variabile d'ambiente (DURABILE: sopravvive ai deploy/azzeramenti del disco).
+  //    È il modo consigliato per tenere Drive collegato in modo permanente sul
+  //    free tier di Render. L'utente la imposta una volta sola (GOOGLE_REFRESH_TOKEN).
+  if (config.google.refreshToken) return config.google.refreshToken;
+  // 2) Fallback: token salvato nel DB (si perde se il disco si azzera).
   const s = getStoreValue(TOKEN_KEY);
   if (!s || !s.c) return null;
   try {
@@ -98,6 +103,19 @@ export async function getFreshAccessToken() {
   const data = await res.json();
   if (!res.ok) throw new Error(`Google refresh error: ${JSON.stringify(data)}`);
   return data.access_token;
+}
+
+// Scarica il contenuto (testo) di un file Drive creato dall'app, per nome.
+// Ritorna la stringa, o null se il file non esiste.
+export async function downloadFromDrive(filename) {
+  const accessToken = await getFreshAccessToken();
+  const id = await findDriveFileByName(accessToken, filename);
+  if (!id) return null;
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw new Error(`Google Drive download error: ${res.status}`);
+  return await res.text();
 }
 
 // Cerca un file già creato dall'app con questo nome (scope drive.file → vede solo

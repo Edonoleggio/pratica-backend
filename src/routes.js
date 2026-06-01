@@ -36,6 +36,7 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 import { getLampedusaArrivals } from './flights/index.js';
 import { getLampedusaVessels } from './marine/index.js';
+import { scheduleContractsBackup, restoreContractsFromDriveIfEmpty } from './contracts-backup.js';
 
 export const router = Router();
 
@@ -195,6 +196,11 @@ router.get('/google/callback', async (req, res, next) => {
     if (tokens.refresh_token) {
       google.saveRefreshToken(tokens.refresh_token);
       audit({ operatorId: operatorOf(req), action: 'google.connected', requestIp: req.ip });
+      // Appena Drive è collegato: se il DB è vuoto (es. dopo un deploy), ripristina
+      // i contratti dall'ultimo backup su Drive. Poi rifai subito un backup.
+      restoreContractsFromDriveIfEmpty()
+        .then((r) => { if (r.restored) logger.info({ restored: r.restored }, 'cargos.restore.on_connect'); })
+        .catch(() => {});
     }
     // Pagina semplice di conferma; l'utente torna all'app.
     res.set('Content-Type', 'text/html; charset=utf-8').send(
@@ -316,6 +322,9 @@ router.post('/contracts', async (req, res, next) => {
       details: { type: record.VEICOLO_TIPO, cargosRequired },
     });
 
+    // Replica i contratti su Drive (durabilità anti-azzeramento disco). Debounced.
+    scheduleContractsBackup('contract.created');
+
     // Moto → done. Just return the contract ID.
     if (!cargosRequired) {
       return res.status(201).json({
@@ -348,6 +357,7 @@ router.post('/contracts', async (req, res, next) => {
         contractId: record.CONTRATTO_ID,
         details: { idempotent: result.idempotent || false },
       });
+      scheduleContractsBackup('cargos.send.success');
       return res.status(201).json({
         ok: true,
         contractId: record.CONTRATTO_ID,
@@ -422,6 +432,7 @@ router.post('/contracts/:id/retry', async (req, res, next) => {
       action: 'cargos.send.retry.success',
       contractId: c.id,
     });
+    scheduleContractsBackup('contract.retry');
     res.json({ ok: true, status: 'sent', receipt: result.receipt });
   } catch (err) {
     setContractStatus(req.params.id, 'error', err.message);
@@ -507,6 +518,7 @@ router.post('/contracts/paper', (req, res) => {
       contractId: id,
       details: { type: data.tipoVeicolo },
     });
+    scheduleContractsBackup('contract.paper');
 
     res.status(201).json({ ok: true, contractId: id, status: 'paper' });
   } catch (err) {
@@ -527,6 +539,7 @@ router.delete('/contracts/:id', (req, res) => {
     contractId: req.params.id,
     requestIp: req.ip,
   });
+  scheduleContractsBackup('contract.deleted');
   res.json({ ok: true });
 });
 // ═══════════════════════════════════════════════════════════════════

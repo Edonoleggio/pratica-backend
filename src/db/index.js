@@ -272,3 +272,62 @@ export function setStoreValue(key, value) {
 export function deleteContract(id) {
   db.prepare(`DELETE FROM contracts WHERE id = ?`).run(id);
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// BACKUP/RESTORE CONTRATTI — durabilità su Google Drive (vedi contracts-backup.js)
+//
+// Il disco di Render (free tier) è effimero: a ogni deploy il DB si azzera.
+// Per non perdere i contratti CARGOS (records legali) li si replica su Drive.
+// Esportiamo i BLOB cifrati COSÌ COME SONO (hex): i dati personali restano
+// cifrati anche nel file su Drive (inutilizzabili senza ENCRYPTION_KEY).
+// ═══════════════════════════════════════════════════════════════════
+
+export function countContracts() {
+  return db.prepare(`SELECT COUNT(*) AS n FROM contracts`).get().n;
+}
+
+export function exportContractsBackup() {
+  const contracts = db.prepare(
+    `SELECT id, created_at, updated_at, operator_id, vehicle_type, cargos_required,
+            status, hex(payload_encrypted) AS payload_encrypted,
+            hex(payload_iv) AS payload_iv, hex(payload_tag) AS payload_tag,
+            last_error, attempt_count, next_attempt_at
+     FROM contracts`,
+  ).all();
+  const receipts = db.prepare(`SELECT * FROM receipts`).all();
+  return { schema: 1, exportedAt: Date.now(), contracts, receipts };
+}
+
+export function importContractsBackup(data) {
+  if (!data || !Array.isArray(data.contracts)) return { restored: 0, receipts: 0 };
+  const hexToBuf = (h) => (h ? Buffer.from(h, 'hex') : null);
+  const insC = db.prepare(
+    `INSERT OR IGNORE INTO contracts
+       (id, created_at, updated_at, operator_id, vehicle_type, cargos_required,
+        status, payload_encrypted, payload_iv, payload_tag, last_error,
+        attempt_count, next_attempt_at)
+     VALUES (@id,@created_at,@updated_at,@operator_id,@vehicle_type,@cargos_required,
+             @status,@pe,@pi,@pt,@last_error,@attempt_count,@next_attempt_at)`,
+  );
+  const insR = db.prepare(
+    `INSERT OR IGNORE INTO receipts (id, contract_id, received_at, receipt_id, raw_response_json)
+     VALUES (@id,@contract_id,@received_at,@receipt_id,@raw_response_json)`,
+  );
+  const tx = db.transaction(() => {
+    let c = 0, r = 0;
+    for (const row of data.contracts) {
+      insC.run({
+        id: row.id, created_at: row.created_at, updated_at: row.updated_at,
+        operator_id: row.operator_id, vehicle_type: row.vehicle_type,
+        cargos_required: row.cargos_required, status: row.status,
+        pe: hexToBuf(row.payload_encrypted), pi: hexToBuf(row.payload_iv), pt: hexToBuf(row.payload_tag),
+        last_error: row.last_error ?? null, attempt_count: row.attempt_count ?? 0,
+        next_attempt_at: row.next_attempt_at ?? null,
+      });
+      c++;
+    }
+    for (const row of (data.receipts || [])) { insR.run(row); r++; }
+    return { restored: c, receipts: r };
+  });
+  return tx();
+}
