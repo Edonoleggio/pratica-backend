@@ -74,6 +74,10 @@ export const config = {
     // molto bassa → cache interna lunga (default 60 min) per non esaurirla.
     aviationStackKey: process.env.AVIATIONSTACK_KEY || '',
     aviationStackCacheMin: parseInt(process.env.AVIATIONSTACK_CACHE_MIN || '60', 10),
+    // AirLabs (airlabs.co) — schedules con stato reale (landed/en-route). Free tier
+    // generoso (~1000-2000 chiamate/mese) → cache interna per non esaurirlo.
+    airLabsKey: process.env.AIRLABS_KEY || '',
+    airLabsCacheMin: parseInt(process.env.AIRLABS_CACHE_MIN || '60', 10),
     // OpenSky Network (OAuth2 client credentials; opzionale, fallback)
     openSky: {
       clientId: process.env.OPENSKY_CLIENT_ID || '',
