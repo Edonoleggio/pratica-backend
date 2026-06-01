@@ -47,6 +47,17 @@ function navLabel(code) {
   return null;
 }
 
+// UN/LOCODE → nome leggibile (porti rilevanti per le Pelagie)
+const PORT_LOCODE = {
+  ITLMP: 'Lampedusa', ITLIU: 'Linosa', ITPOE: 'Porto Empedocle', ITPEM: 'Porto Empedocle',
+  ITPAL: 'Palermo', ITTPS: 'Trapani', ITCAT: 'Catania',
+};
+function portName(code) {
+  if (!code) return null;
+  const k = String(code).toUpperCase().trim();
+  return PORT_LOCODE[k] || code;
+}
+
 // Tipo nave (traghetto/aliscafo) da una mappa nota o dal nome
 function vesselKind(name) {
   const t = (name || '').toLowerCase();
@@ -62,12 +73,12 @@ async function fetchVessel(mmsi, key, base) {
   const r = await withTimeout(fetch(posUrl, { headers }), SRC_TIMEOUT_MS, 'vesselapi');
   if (!r.ok) return { mmsi, ok: false, error: `http_${r.status}` };
   const pos = await r.json();
-  const d = pos?.data || pos;   // tollerante a wrapper { data: {...} }
+  const d = pos?.vesselPosition || pos?.data || pos;   // risposta reale: { vesselPosition: {...} }
   // ETA/destinazione (endpoint separato; opzionale, se fallisce ignora)
   let eta = null, destination = null;
   try {
     const er = await withTimeout(fetch(`${base}/vessel/${encodeURIComponent(mmsi)}/eta?filter.idType=mmsi`, { headers }), SRC_TIMEOUT_MS, 'vesselapi_eta');
-    if (er.ok) { const ej = await er.json(); const e = ej?.data || ej; eta = e?.eta || e?.eta_utc || null; destination = e?.destination || e?.dest || null; }
+    if (er.ok) { const ej = await er.json(); const e = ej?.vesselEta || ej?.data || ej; eta = e?.eta || e?.eta_utc || null; destination = portName(e?.destination_port || e?.destination); }
   } catch {}
   return {
     mmsi: String(d?.mmsi || mmsi),
@@ -106,6 +117,10 @@ export async function getLampedusaVessels() {
     const distKm = Math.round(distanceKm(v.lat, v.lon, port.lat, port.lon));
     const brgToPort = bearing(v.lat, v.lon, port.lat, port.lon);
     const cog = v.cog == null ? null : Number(v.cog);
+    // Freschezza posizione: l'AIS può essere vecchio (la nave era fuori copertura)
+    const ts = v.timestamp ? new Date(v.timestamp).getTime() : null;
+    const ageMin = ts ? Math.round((Date.now() - ts) / 60000) : null;
+    const stale = ageMin != null && ageMin > 180;   // > 3h → posizione non recente
     // "in avvicinamento" se si muove (>2 nodi) e la rotta punta verso il porto (±55°)
     const diff = cog == null ? 999 : Math.min(Math.abs(cog - brgToPort), 360 - Math.abs(cog - brgToPort));
     const moving = (v.sog ?? 0) > 2;
@@ -123,7 +138,7 @@ export async function getLampedusaVessels() {
       lat: v.lat, lon: v.lon, sog: v.sog, cog,
       distanceKm: distKm, approaching, atPort, stato,
       etaMin, etaAis: v.eta || null, destination: v.destination || null,
-      timestamp: v.timestamp,
+      timestamp: v.timestamp, ageMin, stale,
     };
   });
 
