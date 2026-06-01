@@ -22,7 +22,7 @@
 
 import { fetch } from 'undici';
 import pRetry, { AbortError } from 'p-retry';
-import { authenticator } from 'otplib';
+import { generateSync as generateTotp } from 'otplib';
 import { config } from '../config.js';
 import { db } from '../db/index.js';
 import { logger } from '../logger.js';
@@ -155,7 +155,9 @@ function generateTotpIfAvailable() {
   const secret = config.cargos.otpSecret;
   if (!secret) return null;
   try {
-    return authenticator.generate(secret);
+    // otplib v13: generateSync({ secret }) → stringa di 6 cifre.
+    // Richiede un secret base32 di almeno 16 byte (128 bit).
+    return generateTotp({ secret });
   } catch (err) {
     logger.warn({ err: err.message }, 'cargos.totp.generate.error');
     return null;
