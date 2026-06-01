@@ -42,13 +42,18 @@ export const config = {
   },
   // Google Drive: OAuth lato server (refresh token) per backup automatici senza popup.
   google: {
-    clientId: process.env.GOOGLE_CLIENT_ID || '',
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
-    redirectUri: process.env.GOOGLE_REDIRECT_URI || '',
+    // NB: .trim() su tutte le credenziali OAuth. Incollando questi valori su Render
+    // (specie il refresh token, copiato da un box <code> del browser) è facilissimo
+    // portarsi dietro uno spazio o un a-capo invisibile → Google risponde invalid_grant
+    // / invalid_client e Drive non si collega. Questi valori non contengono mai spazi
+    // legittimi, quindi rimuoverli è sempre sicuro e rende il collegamento robusto.
+    clientId: (process.env.GOOGLE_CLIENT_ID || '').trim(),
+    clientSecret: (process.env.GOOGLE_CLIENT_SECRET || '').trim(),
+    redirectUri: (process.env.GOOGLE_REDIRECT_URI || '').trim(),
     // Refresh token DURABILE (opzionale): se impostato, tiene Drive collegato anche
     // dopo i deploy (il free tier di Render azzera il disco/DB). Si ricava una volta
     // sola dopo il primo collegamento OAuth.
-    refreshToken: process.env.GOOGLE_REFRESH_TOKEN || '',
+    refreshToken: (process.env.GOOGLE_REFRESH_TOKEN || '').trim(),
     // Dove rimandare l'utente dopo il collegamento (il sito). Default: frontend Render.
     appUrl: process.env.APP_URL || 'https://pratica-frontend.onrender.com',
   },
