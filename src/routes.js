@@ -202,12 +202,28 @@ router.get('/google/callback', async (req, res, next) => {
         .then((r) => { if (r.restored) logger.info({ restored: r.restored }, 'cargos.restore.on_connect'); })
         .catch(() => {});
     }
-    // Pagina semplice di conferma; l'utente torna all'app.
+    // Pagina di conferma. Se Google ha restituito il refresh_token, lo mostriamo
+    // UNA VOLTA con le istruzioni per renderlo permanente (env GOOGLE_REFRESH_TOKEN
+    // su Render). Visibile solo a chi completa il consenso (richiede login Google).
+    const rt = tokens.refresh_token ? String(tokens.refresh_token) : '';
+    const rtEsc = rt.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const permanenceBlock = rt
+      ? `<div style="max-width:680px;margin:24px auto 0;text-align:left;background:#f5f7fa;border:1px solid #d8e0ea;border-radius:10px;padding:18px 20px">
+           <p style="margin:0 0 8px;font-weight:600">Rendi il collegamento permanente (consigliato, 1 minuto)</p>
+           <p style="margin:0 0 10px;color:#444;font-size:14px;line-height:1.5">Così Drive resta collegato anche dopo i futuri aggiornamenti del server, senza rifare questo passaggio. Su <b>Render → pratica-backend → Environment</b> aggiungi una variabile:</p>
+           <p style="margin:0 0 4px;font-size:13px;color:#555">Nome:</p>
+           <code style="display:block;background:#fff;border:1px solid #ccd;border-radius:6px;padding:8px 10px;font-size:13px;margin-bottom:10px">GOOGLE_REFRESH_TOKEN</code>
+           <p style="margin:0 0 4px;font-size:13px;color:#555">Valore (copialo tutto):</p>
+           <code style="display:block;background:#fff;border:1px solid #ccd;border-radius:6px;padding:8px 10px;font-size:13px;word-break:break-all;user-select:all">${rtEsc}</code>
+           <p style="margin:12px 0 0;color:#666;font-size:12.5px">Poi premi <b>Save Changes</b> (il server si riavvia da solo). Tieni questo valore riservato: chiudi la scheda dopo averlo copiato.</p>
+         </div>`
+      : `<p style="color:#999;font-size:13px">(Token permanente non restituito da Google in questo accesso — è comunque tutto funzionante.)</p>`;
     res.set('Content-Type', 'text/html; charset=utf-8').send(
-      `<html><body style="font-family:sans-serif;text-align:center;padding:48px">
+      `<html><body style="font-family:sans-serif;text-align:center;padding:40px 16px">
        <h2>✅ Google Drive collegato</h2>
-       <p>Il backup automatico su Drive è attivo. Puoi chiudere questa scheda.</p>
-       <p><a href="${config.google.appUrl}">Torna a Pratica</a></p>
+       <p>Il backup automatico su Drive è attivo.</p>
+       ${permanenceBlock}
+       <p style="margin-top:24px"><a href="${config.google.appUrl}">Torna a Pratica</a></p>
        </body></html>`,
     );
   } catch (err) {
