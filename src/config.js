@@ -42,18 +42,21 @@ export const config = {
   },
   // Google Drive: OAuth lato server (refresh token) per backup automatici senza popup.
   google: {
-    // NB: .trim() su tutte le credenziali OAuth. Incollando questi valori su Render
-    // (specie il refresh token, copiato da un box <code> del browser) è facilissimo
-    // portarsi dietro uno spazio o un a-capo invisibile → Google risponde invalid_grant
-    // / invalid_client e Drive non si collega. Questi valori non contengono mai spazi
-    // legittimi, quindi rimuoverli è sempre sicuro e rende il collegamento robusto.
-    clientId: (process.env.GOOGLE_CLIENT_ID || '').trim(),
-    clientSecret: (process.env.GOOGLE_CLIENT_SECRET || '').trim(),
-    redirectUri: (process.env.GOOGLE_REDIRECT_URI || '').trim(),
+    // NB: rimuoviamo OGNI spazio/a-capo (\s) dalle credenziali OAuth, non solo agli
+    // estremi. Incollando questi valori su Render (specie il refresh token, copiato dal
+    // box <code> della pagina di callback) Safari/Chrome possono infilare un a-capo
+    // invisibile anche IN MEZZO al codice (il box va a capo per word-break) → Google
+    // risponde invalid_grant/invalid_client e Drive non si collega. Un .trim() pulirebbe
+    // solo le estremità; serve togliere lo spazio anche interno. Questi valori non
+    // contengono mai spazi/a-capo legittimi, quindi è sempre sicuro e rende il
+    // collegamento robusto al copia-incolla e DURABILE (la env sopravvive ai deploy).
+    clientId: (process.env.GOOGLE_CLIENT_ID || '').replace(/\s/g, ''),
+    clientSecret: (process.env.GOOGLE_CLIENT_SECRET || '').replace(/\s/g, ''),
+    redirectUri: (process.env.GOOGLE_REDIRECT_URI || '').replace(/\s/g, ''),
     // Refresh token DURABILE (opzionale): se impostato, tiene Drive collegato anche
     // dopo i deploy (il free tier di Render azzera il disco/DB). Si ricava una volta
     // sola dopo il primo collegamento OAuth.
-    refreshToken: (process.env.GOOGLE_REFRESH_TOKEN || '').trim(),
+    refreshToken: (process.env.GOOGLE_REFRESH_TOKEN || '').replace(/\s/g, ''),
     // Dove rimandare l'utente dopo il collegamento (il sito). Default: frontend Render.
     appUrl: process.env.APP_URL || 'https://pratica-frontend.onrender.com',
   },
