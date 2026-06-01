@@ -45,6 +45,10 @@ export const config = {
     clientId: process.env.GOOGLE_CLIENT_ID || '',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
     redirectUri: process.env.GOOGLE_REDIRECT_URI || '',
+    // Refresh token DURABILE (opzionale): se impostato, tiene Drive collegato anche
+    // dopo i deploy (il free tier di Render azzera il disco/DB). Si ricava una volta
+    // sola dopo il primo collegamento OAuth.
+    refreshToken: process.env.GOOGLE_REFRESH_TOKEN || '',
     // Dove rimandare l'utente dopo il collegamento (il sito). Default: frontend Render.
     appUrl: process.env.APP_URL || 'https://pratica-frontend.onrender.com',
   },

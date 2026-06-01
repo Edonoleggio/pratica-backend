@@ -13,6 +13,7 @@ import { router } from './routes.js';
 import { backupRouter } from './backup.js';
 import * as cargos from './cargos/client.js';
 import { nextPendingContracts, getContract, setContractStatus, scheduleRetry, audit } from './db/index.js';
+import { restoreContractsFromDriveIfEmpty } from './contracts-backup.js';
 
 const app = express();
 
@@ -95,6 +96,18 @@ async function workerTick() {
 if (config.env !== 'test') { setInterval(() => { workerTick().catch((err) => logger.error({ err }, 'worker.tick.failed')); }, WORKER_INTERVAL_MS); }
 
 const server = app.listen(config.port, () => { logger.info({ port: config.port, env: config.env, cargos: config.cargos.baseUrl, agency: config.agency.id || '(not configured)' }, 'pratica.boot'); });
+
+// All'avvio: se il DB è vuoto (disco effimero appena azzerato) e Drive è collegato
+// (via GOOGLE_REFRESH_TOKEN in env, o token nel DB se sopravvissuto), ripristina i
+// contratti CARGOS dall'ultimo backup su Drive. Non blocca il boot; non sovrascrive
+// dati esistenti. In NODE_ENV=test è saltato.
+if (config.env !== 'test') {
+  setTimeout(() => {
+    restoreContractsFromDriveIfEmpty()
+      .then((r) => { if (r.restored) logger.info({ restored: r.restored }, 'cargos.restore.on_boot'); })
+      .catch((err) => logger.error({ err: err.message }, 'cargos.restore.on_boot.failed'));
+  }, 2000).unref();
+}
 
 const shutdown = (signal) => { logger.info({ signal }, 'shutdown.start'); server.close(() => { logger.info('shutdown.complete'); process.exit(0); }); setTimeout(() => process.exit(1), 10_000).unref(); };
 process.on('SIGTERM', () => shutdown('SIGTERM'));
