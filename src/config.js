@@ -62,6 +62,10 @@ export const config = {
     fr24BaseUrl: process.env.FR24_BASE_URL || 'https://fr24api.flightradar24.com',
     // AeroDataBox via RapidAPI
     aeroDataBoxKey: process.env.AERODATABOX_KEY || '',
+    // AviationStack — stato REALE (atterrato/in volo/ritardo). Free tier con quota
+    // molto bassa → cache interna lunga (default 60 min) per non esaurirla.
+    aviationStackKey: process.env.AVIATIONSTACK_KEY || '',
+    aviationStackCacheMin: parseInt(process.env.AVIATIONSTACK_CACHE_MIN || '60', 10),
     // OpenSky Network (OAuth2 client credentials; opzionale, fallback)
     openSky: {
       clientId: process.env.OPENSKY_CLIENT_ID || '',

@@ -166,6 +166,62 @@ async function fetchAeroDataBox(dateISO) {
   }
 }
 
+// ─── Fonte: AviationStack — stato REALE (atterrato/in volo/ritardo) ──
+// http://api.aviationstack.com/v1/flights?access_key=KEY&arr_iata=LMP
+// Free tier: quota MOLTO bassa (e solo HTTP). Per non esaurirla teniamo una
+// cache interna lunga (config.flights.aviationStackCacheMin, default 60 min):
+// l'aggregatore può girare ogni 10 min, ma AviationStack viene davvero chiamata
+// solo allo scadere della SUA cache.
+let _aviationStackCache = null;   // { at, flights }
+function mapAviationStackStatus(s) {
+  const t = (s || '').toLowerCase();
+  if (t === 'landed') return 'landed';
+  if (t === 'active' || t === 'en-route' || t === 'enroute') return 'enroute';
+  if (t === 'cancelled' || t === 'canceled') return 'cancelled';
+  if (t === 'incident' || t === 'diverted') return 'cancelled';
+  return 'scheduled';   // scheduled / unknown
+}
+async function fetchAviationStack(dateISO) {
+  const key = config.flights.aviationStackKey;
+  if (!key) return { enabled: false };
+  // Cache interna lunga (quota free)
+  const ttl = Math.max(10, config.flights.aviationStackCacheMin) * 60 * 1000;
+  if (_aviationStackCache && Date.now() - _aviationStackCache.at < ttl) {
+    return { enabled: true, ok: true, flights: _aviationStackCache.flights, cached: true };
+  }
+  const base = 'http://api.aviationstack.com/v1/flights';
+  const params = new URLSearchParams({ access_key: key, arr_iata: IATA(), limit: '100' });
+  const url = `${base}?${params.toString()}`;
+  try {
+    const r = await withTimeout(fetch(url), SOURCE_TIMEOUT_MS, 'aviationstack');
+    if (!r.ok) return { enabled: true, ok: false, error: `http_${r.status}`, flights: [] };
+    const json = await r.json();
+    if (json?.error) return { enabled: true, ok: false, error: json.error?.code || 'api_error', flights: [] };
+    const rows = Array.isArray(json?.data) ? json.data : [];
+    const flights = rows.map((f) => {
+      const arr = f.arrival || {};
+      const dep = f.departure || {};
+      return {
+        flightNumber: normFlightNo(f.flight?.iata || f.flight?.icao || f.flight?.number),
+        airline: f.airline?.name || '',
+        originIata: dep.iata || '',
+        originIcao: dep.icao || '',
+        originName: dep.airport || '',
+        scheduledArrival: utcIso(arr.scheduled),
+        estimatedArrival: utcIso(arr.estimated || arr.scheduled),
+        actualArrival: utcIso(arr.actual),
+        aircraftModel: f.aircraft?.iata || '',
+        status: mapAviationStackStatus(f.flight_status),
+        sources: ['aviationstack'],
+      };
+    }).filter((f) => f.flightNumber || f.originIata || f.originIcao);
+    _aviationStackCache = { at: Date.now(), flights };
+    return { enabled: true, ok: true, flights };
+  } catch (err) {
+    return { enabled: true, ok: false, error: err.message, flights: [] };
+  }
+}
+
 // ─── Fonte 3: OpenSky Network (fallback, solo voli atterrati) ───────
 let _openSkyToken = null;
 async function openSkyAuth() {
@@ -253,24 +309,26 @@ export async function getLampedusaArrivals(dateISO) {
     return { ...cached.payload, cached: true };
   }
 
-  const [fr24, adb, opensky] = await Promise.all([
+  const [fr24, adb, avs, opensky] = await Promise.all([
     fetchFR24(date).catch((e) => ({ enabled: true, ok: false, error: e.message, flights: [] })),
     fetchAeroDataBox(date).catch((e) => ({ enabled: true, ok: false, error: e.message, flights: [] })),
+    fetchAviationStack(date).catch((e) => ({ enabled: true, ok: false, error: e.message, flights: [] })),
     fetchOpenSky(date).catch((e) => ({ enabled: true, ok: false, error: e.message, flights: [] })),
   ]);
 
-  const flights = mergeFlights([fr24.flights || [], adb.flights || [], opensky.flights || []]);
+  const flights = mergeFlights([fr24.flights || [], adb.flights || [], avs.flights || [], opensky.flights || []]);
   const openSkyHasCreds = !!(config.flights.openSky.clientId && config.flights.openSky.clientSecret);
   const sources = {
     fr24: { enabled: !!fr24.enabled, ok: !!fr24.ok, count: (fr24.flights || []).length, error: fr24.error },
     aerodatabox: { enabled: !!adb.enabled, ok: !!adb.ok, count: (adb.flights || []).length, error: adb.error },
+    aviationstack: { enabled: !!avs.enabled, ok: !!avs.ok, count: (avs.flights || []).length, error: avs.error, cached: !!avs.cached },
     // OpenSky viene SEMPRE tentato (anche anonimo) ma lo consideriamo "configurato"
     // solo con credenziali OAuth2; resta un fallback per i voli atterrati.
     opensky: { enabled: openSkyHasCreds, ok: !!opensky.ok, count: (opensky.flights || []).length, error: opensky.error },
   };
   // "configured" = c'è almeno una chiave seria, oppure è arrivato qualche volo.
   const anyConfigured = !!config.flights.fr24Token || !!config.flights.aeroDataBoxKey
-    || openSkyHasCreds || flights.length > 0;
+    || !!config.flights.aviationStackKey || openSkyHasCreds || flights.length > 0;
 
   const payload = {
     ok: true,
