@@ -60,4 +60,14 @@ export const config = {
       clientSecret: process.env.OPENSKY_CLIENT_SECRET || '',
     },
   },
+  // Navi (traghetti/aliscafi) per Lampedusa — tracking AIS via VesselAPI.
+  // Lista MMSI configurabile: default = traghetti Siremar Sansovino + Cossyra.
+  marine: {
+    vesselApiKey: process.env.VESSELAPI_KEY || '',
+    vesselApiBase: process.env.VESSELAPI_BASE || 'https://api.vesselapi.com/v1',
+    vesselsMmsi: (process.env.LAMPEDUSA_VESSELS_MMSI || '247387300,247010100')
+      .split(',').map((s) => s.trim()).filter(Boolean),
+    portLat: parseFloat(process.env.LAMPEDUSA_PORT_LAT || '35.4992'),
+    portLon: parseFloat(process.env.LAMPEDUSA_PORT_LON || '12.6065'),
+  },
 };

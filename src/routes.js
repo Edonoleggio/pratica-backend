@@ -35,6 +35,7 @@ import {
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { getLampedusaArrivals } from './flights/index.js';
+import { getLampedusaVessels } from './marine/index.js';
 
 export const router = Router();
 
@@ -160,6 +161,16 @@ router.get('/voli/lampedusa', async (req, res) => {
   } catch (err) {
     logger.error({ err: err.message }, 'voli.lampedusa.error');
     res.status(502).json({ ok: false, error: 'voli_error', detail: err.message });
+  }
+});
+
+// GET /api/navi/lampedusa → tracking AIS traghetti/aliscafi (vedi marine/index.js)
+router.get('/navi/lampedusa', async (_req, res) => {
+  try {
+    res.json(await getLampedusaVessels());
+  } catch (err) {
+    logger.error({ err: err.message }, 'navi.lampedusa.error');
+    res.status(502).json({ ok: false, error: 'navi_error', detail: err.message });
   }
 });
 
