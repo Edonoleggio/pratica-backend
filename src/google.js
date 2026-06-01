@@ -86,6 +86,24 @@ export function isConnected() {
   return Boolean(getRefreshToken());
 }
 
+// Verifica REALE: il refresh token funziona davvero? (isConnected controlla solo
+// che esista). Risultato in cache 5 min per non martellare Google. Usato dallo
+// status e dal backup/ripristino contratti per evitare tentativi con token morto.
+let _connCheck = { at: 0, valid: false };
+export async function isConnectedValid() {
+  if (!getRefreshToken()) return false;
+  if (Date.now() - _connCheck.at < 5 * 60 * 1000) return _connCheck.valid;
+  try {
+    await getFreshAccessToken();
+    _connCheck = { at: Date.now(), valid: true };
+    return true;
+  } catch (err) {
+    _connCheck = { at: Date.now(), valid: false };
+    logger.warn({ err: err.message }, 'google.token.invalid');
+    return false;
+  }
+}
+
 // Ottiene un access_token fresco usando il refresh_token salvato.
 export async function getFreshAccessToken() {
   const rt = getRefreshToken();

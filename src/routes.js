@@ -232,8 +232,13 @@ router.get('/google/callback', async (req, res, next) => {
 });
 
 // Stato del collegamento (per il pulsante nel sito).
-router.get('/google/status', (_req, res) => {
-  res.json({ ok: true, configured: google.isGoogleConfigured(), connected: google.isConnected() });
+// connected = il token funziona DAVVERO (non solo presente). tokenPresent =
+// esiste un token (env o DB) ma potrebbe essere scaduto/non valido.
+router.get('/google/status', async (_req, res) => {
+  const configured = google.isGoogleConfigured();
+  const tokenPresent = google.isConnected();
+  const connected = tokenPresent ? await google.isConnectedValid() : false;
+  res.json({ ok: true, configured, connected, tokenPresent });
 });
 
 // Carica un backup su Drive (il sito invia i dati; l'upload lo fa il server,

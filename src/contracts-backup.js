@@ -22,7 +22,7 @@ let _timer = null;
 
 // Backup immediato su Drive di tutti i contratti + ricevute (snapshot completo).
 export async function backupContractsToDrive(reason = 'manual') {
-  if (!google.isConnected()) return { ok: false, reason: 'google_not_connected' };
+  if (!(await google.isConnectedValid())) return { ok: false, reason: 'google_not_connected_or_invalid' };
   try {
     const data = exportContractsBackup();
     if (!data.contracts.length && !data.receipts.length) return { ok: true, skipped: 'empty' };
@@ -48,7 +48,14 @@ export function scheduleContractsBackup(reason = 'change') {
 export async function restoreContractsFromDriveIfEmpty() {
   try {
     if (countContracts() > 0) return { restored: 0, reason: 'db_not_empty' };
-    if (!google.isConnected()) return { restored: 0, reason: 'google_not_connected' };
+    // Verifica REALE del token: se Drive non è collegato o il token è scaduto/non
+    // valido, NON è un errore (es. CARGOS non ancora attivo) → log informativo,
+    // niente riga rossa. Si ripristinerà appena Drive sarà collegato con token valido.
+    const ok = await google.isConnectedValid();
+    if (!ok) {
+      logger.info('cargos.restore.skip: Drive non collegato o token da rinnovare');
+      return { restored: 0, reason: 'google_not_connected_or_invalid' };
+    }
     const content = await google.downloadFromDrive(DRIVE_FILENAME);
     if (!content) return { restored: 0, reason: 'no_backup_on_drive' };
     const data = JSON.parse(content);
@@ -56,7 +63,7 @@ export async function restoreContractsFromDriveIfEmpty() {
     logger.info({ restored: r.restored, receipts: r.receipts }, 'cargos.restore.drive.ok');
     return r;
   } catch (err) {
-    logger.error({ err: err.message }, 'cargos.restore.drive.error');
+    logger.warn({ err: err.message }, 'cargos.restore.drive.warn');
     return { restored: 0, reason: err.message };
   }
 }
