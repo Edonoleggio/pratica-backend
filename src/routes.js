@@ -445,7 +445,11 @@ router.get('/contracts/:id/csv', (req, res) => {
 });
 
 router.post('/contracts/csv-batch', (req, res) => {
-  const ids = z.array(z.string()).max(100).parse(req.body.ids);
+  const parsed = z.array(z.string()).max(100).safeParse(req.body.ids);
+  if (!parsed.success) {
+    return res.status(400).json({ ok: false, error: 'ids non validi', detail: formatErrors(parsed.error) });
+  }
+  const ids = parsed.data;
   const records = ids.map((id) => getContract(id)).filter(Boolean).map((c) => c.payload);
 
   if (records.length === 0) {
@@ -527,14 +531,31 @@ router.delete('/contracts/:id', (req, res) => {
 });
 // ═══════════════════════════════════════════════════════════════════
 // KEY-VALUE STORE — sincronizzazione dati tra dispositivi
+//
+// Protetto da STORE_SECRET (se configurato). Il frontend invia il
+// token via header  Authorization: Bearer <token>  oppure query
+// ?token=<token> (stesso pattern di backup.js).
+// Se STORE_SECRET non è impostato il check è saltato (fallback per
+// ambienti di sviluppo o deploy non ancora aggiornati).
 // ═══════════════════════════════════════════════════════════════════
 
-router.get('/store/:key', (req, res) => {
+function checkStoreAuth(req, res, next) {
+  const secret = config.storeSecret;
+  if (!secret) return next();
+  const auth = req.headers['authorization'] || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : (req.query.token || '');
+  if (token !== secret) {
+    return res.status(401).json({ ok: false, error: 'store_token_non_valido' });
+  }
+  next();
+}
+
+router.get('/store/:key', checkStoreAuth, (req, res) => {
   const value = getStoreValue(req.params.key);
   res.json({ ok: true, key: req.params.key, value: value ?? null });
 });
 
-router.put('/store/:key', (req, res) => {
+router.put('/store/:key', checkStoreAuth, (req, res) => {
   setStoreValue(req.params.key, req.body.value);
   res.json({ ok: true });
 });

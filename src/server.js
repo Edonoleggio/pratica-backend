@@ -34,6 +34,9 @@ const RENTME_ALLOWED_PATHS = [
 app.all('/api/rentme-proxy', async (req, res) => {
   try {
     const pathParam = String(req.query.path || '');
+    if (pathParam.includes('..') || pathParam.includes('%2e') || pathParam.includes('%2E')) {
+      return res.status(403).json({ ok: false, error: 'path_not_allowed' });
+    }
     if (!RENTME_ALLOWED_PATHS.some((p) => pathParam.startsWith(p))) {
       return res.status(403).json({ ok: false, error: 'path_not_allowed' });
     }
