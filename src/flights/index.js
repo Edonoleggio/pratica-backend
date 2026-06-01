@@ -151,9 +151,9 @@ async function fetchAeroDataBox(dateISO) {
           originIata: a.departure?.airport?.iata || a.movement?.airport?.iata || '',
           originIcao: a.departure?.airport?.icao || a.movement?.airport?.icao || '',
           originName: a.departure?.airport?.name || a.movement?.airport?.name || '',
-          scheduledArrival: sched.utc ? sched.utc.replace(' ', 'T') : (typeof sched === 'string' ? sched : null),
-          estimatedArrival: est.utc ? est.utc.replace(' ', 'T') : null,
-          actualArrival: (mv.runwayTime?.utc) ? mv.runwayTime.utc.replace(' ', 'T') : null,
+          scheduledArrival: utcIso(sched.utc || (typeof sched === 'string' ? sched : null)),
+          estimatedArrival: utcIso(est.utc),
+          actualArrival: utcIso(mv.runwayTime?.utc),
           aircraftModel: a.aircraft?.model || '',   // es. "Airbus A320"
           status: mapAdbStatus(a.status),
           sources: ['aerodatabox'],

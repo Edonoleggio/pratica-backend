@@ -31,6 +31,10 @@ export const config = {
   },
   defaultOperatorId: process.env.OPERATORE_ID_DEFAULT || 'unknown',
   questuraPec: process.env.QUESTURA_PEC || '',
+  // Segreto per proteggere il KV store di sync (GET/PUT /api/store/:key).
+  // Se non impostato il check è disabilitato (retrocompatibilità). In produzione
+  // può coincidere con BACKUP_SECRET — stessa variabile, stessa protezione.
+  storeSecret: process.env.STORE_SECRET || process.env.BACKUP_SECRET || '',
   // RentMe: l'UUID azienda resta solo qui (env), non più nel codice del sito.
   rentme: {
     userId: process.env.RENTME_USER_ID || '',
