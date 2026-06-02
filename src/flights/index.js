@@ -59,16 +59,16 @@ function romeOffsetMinutes(date) {
   const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
   return (asUTC - date.getTime()) / 60000;
 }
-// Interpreta un datetime SENZA fuso ("2026-06-02T13:35") come ORA LOCALE di
-// Lampedusa (Europe/Rome) e lo converte in ISO UTC corretto. Se la stringa ha
-// già un fuso esplicito (Z o ±HH:MM) la lascia invariata (utcIso).
-// Serve per AirLabs/AviationStack che mandano gli orari locali senza offset
-// (arr_time/arr_estimated): trattarli come UTC produceva un +2h in estate.
+// Interpreta le CIFRE wall-clock di un datetime come ORA LOCALE di Lampedusa
+// (Europe/Rome) e le converte in ISO UTC corretto, **ignorando qualunque
+// offset/Z presente**. Motivo: AviationStack etichetta gli orari locali con un
+// offset FASULLO "+00:00" (es. "08:40:00+00:00" = in realtà 08:40 locale), e
+// AirLabs manda arr_time/arr_estimated locali senza offset. In entrambi i casi
+// le cifre SONO l'ora locale dell'aeroporto: trattarle come UTC dava un +2h.
+// NB: NON usare per FR24/AeroDataBox (quelli sono UTC veri → utcIso).
 function localRomeToUtc(s) {
   if (!s) return null;
-  const str = String(s).trim();
-  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(str)) return str;   // ha già fuso → fidati
-  const m = str.replace(' ', 'T').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+  const m = String(s).trim().replace(' ', 'T').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
   if (!m) return utcIso(s);
   const [, Y, Mo, D, H, Mi, S] = m;
   const naive = Date.UTC(+Y, +Mo - 1, +D, +H, +Mi, +(S || 0));
