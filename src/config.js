@@ -93,6 +93,9 @@ export const config = {
       .split(',').map((s) => s.trim()).filter(Boolean),
     portLat: parseFloat(process.env.LAMPEDUSA_PORT_LAT || '35.4992'),
     portLon: parseFloat(process.env.LAMPEDUSA_PORT_LON || '12.6065'),
+    // TTL cache navi. Il free tier VesselAPI ha quota mensile bassa: 4 min
+    // bruciavano la quota in un giorno (http_429). Default 30 min, alzabile.
+    cacheMin: parseInt(process.env.MARINE_CACHE_MIN || '30', 10),
   },
   // PEC automatica — invio CARGOS via PEC (SMTP Aruba). PREDISPOSTA MA SPENTA:
   // l'invio reale è possibile SOLO con autoEnabled=true (interruttore generale,
