@@ -47,6 +47,34 @@ function utcIso(s) {
   if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(str)) return str;   // ha già tz
   return str.replace(' ', 'T') + 'Z';
 }
+// Offset (minuti) di Europe/Rome per un dato istante — DST-aware via Intl.
+function romeOffsetMinutes(date) {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Rome', hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  const p = {};
+  dtf.formatToParts(date).forEach((x) => { p[x.type] = x.value; });
+  const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+  return (asUTC - date.getTime()) / 60000;
+}
+// Interpreta un datetime SENZA fuso ("2026-06-02T13:35") come ORA LOCALE di
+// Lampedusa (Europe/Rome) e lo converte in ISO UTC corretto. Se la stringa ha
+// già un fuso esplicito (Z o ±HH:MM) la lascia invariata (utcIso).
+// Serve per AirLabs/AviationStack che mandano gli orari locali senza offset
+// (arr_time/arr_estimated): trattarli come UTC produceva un +2h in estate.
+function localRomeToUtc(s) {
+  if (!s) return null;
+  const str = String(s).trim();
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(str)) return str;   // ha già fuso → fidati
+  const m = str.replace(' ', 'T').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return utcIso(s);
+  const [, Y, Mo, D, H, Mi, S] = m;
+  const naive = Date.UTC(+Y, +Mo - 1, +D, +H, +Mi, +(S || 0));
+  const off = romeOffsetMinutes(new Date(naive));   // es. +120 in estate
+  return new Date(naive - off * 60000).toISOString();
+}
 function withTimeout(promise, ms, label) {
   return Promise.race([
     promise,
@@ -215,9 +243,11 @@ async function fetchAviationStack(dateISO) {
           originIata: dep.iata || '',
           originIcao: dep.icao || '',
           originName: dep.airport || '',
-          scheduledArrival: utcIso(arr.scheduled),
-          estimatedArrival: utcIso(arr.estimated || arr.scheduled),
-          actualArrival: utcIso(arr.actual),
+          // AviationStack manda l'offset dell'aeroporto; se manca, l'orario è
+          // locale Lampedusa → localRomeToUtc (no-op quando il fuso c'è già).
+          scheduledArrival: localRomeToUtc(arr.scheduled),
+          estimatedArrival: localRomeToUtc(arr.estimated || arr.scheduled),
+          actualArrival: localRomeToUtc(arr.actual),
           aircraftModel: f.aircraft?.iata || '',
           status: mapAviationStackStatus(f.flight_status),
           sources: ['aviationstack'],
@@ -278,9 +308,11 @@ async function fetchAirLabs(dateISO) {
         originIata: f.dep_iata || '',
         originIcao: f.dep_icao || '',
         originName: '',
-        scheduledArrival: utcIso(f.arr_time_utc || f.arr_time),
-        estimatedArrival: utcIso(f.arr_estimated_utc || f.arr_estimated || f.arr_time_utc || f.arr_time),
-        actualArrival: utcIso(f.arr_actual_utc || f.arr_actual),
+        // I campi *_utc sono UTC; quelli senza suffisso sono ora LOCALE di
+        // Lampedusa → localRomeToUtc (prima venivano marcati Z = +2h sballato).
+        scheduledArrival: f.arr_time_utc ? utcIso(f.arr_time_utc) : localRomeToUtc(f.arr_time),
+        estimatedArrival: f.arr_estimated_utc ? utcIso(f.arr_estimated_utc) : localRomeToUtc(f.arr_estimated || f.arr_time),
+        actualArrival: f.arr_actual_utc ? utcIso(f.arr_actual_utc) : localRomeToUtc(f.arr_actual),
         aircraftModel: f.aircraft_icao || '',
         status: mapAirLabsStatus(f.status),
         sources: ['airlabs'],

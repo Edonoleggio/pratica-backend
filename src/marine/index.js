@@ -13,9 +13,14 @@
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 
-const CACHE_TTL_MS = 4 * 60 * 1000;     // 4 minuti (le posizioni cambiano lentamente in mare)
+// TTL cache: il free tier VesselAPI ha quota mensile bassa → cache lunga
+// (default 30 min, da env MARINE_CACHE_MIN) per non bruciarla (http_429).
+const CACHE_TTL_MS = Math.max(5, (config.marine?.cacheMin || 30)) * 60 * 1000;
+const RATELIMIT_BACKOFF_MS = 60 * 60 * 1000;   // dopo un 429, riprova non prima di 1h
 const SRC_TIMEOUT_MS = 12000;
 let _cache = null;                       // { at, payload }
+let _lastGood = null;                    // ultimo payload con posizioni valide
+let _rateLimitedUntil = 0;               // timestamp: non interrogare l'API prima di questo istante
 
 const toRad = (d) => (d * Math.PI) / 180;
 const toDeg = (r) => (r * 180) / Math.PI;
@@ -106,9 +111,26 @@ export async function getLampedusaVessels() {
     return payload;
   }
 
+  // Backoff dopo 429: se la quota è esaurita, NON martellare l'API. Serви
+  // l'ultima posizione buona (se c'è), altrimenti segnala il limite raggiunto.
+  if (Date.now() < _rateLimitedUntil) {
+    if (_lastGood) return { ..._lastGood, cached: true, rateLimited: true };
+    return { ok: true, port, vessels: [], configured: true, rateLimited: true, generatedAt: new Date().toISOString() };
+  }
+
   const results = await Promise.all(
     vesselsMmsi.map((m) => fetchVessel(m, key, base).catch((e) => ({ mmsi: m, ok: false, error: e.message })))
   );
+
+  // Quota esaurita (tutte 429): attiva il backoff e riusa l'ultima posizione buona.
+  const allRateLimited = results.length > 0 && results.every((v) => v.error === 'http_429');
+  if (allRateLimited) {
+    _rateLimitedUntil = Date.now() + RATELIMIT_BACKOFF_MS;
+    if (_lastGood) { _cache = { at: Date.now(), payload: _lastGood }; return { ..._lastGood, cached: true, rateLimited: true }; }
+    const payload = { ok: true, port, vessels: [], configured: true, rateLimited: true, generatedAt: new Date().toISOString() };
+    _cache = { at: Date.now(), payload };
+    return payload;
+  }
 
   const vessels = results.map((v) => {
     if (!v.ok || v.lat == null || v.lon == null) {
@@ -144,5 +166,6 @@ export async function getLampedusaVessels() {
 
   const payload = { ok: true, port, vessels, configured: true, generatedAt: new Date().toISOString() };
   _cache = { at: Date.now(), payload };
+  if (vessels.some((v) => v.ok)) _lastGood = payload;   // memorizza per il backoff 429
   return payload;
 }
