@@ -21,6 +21,7 @@ import { verifyAdminPassword, isAdminAuthConfigured } from './admin-auth.js';
 import * as google from './google.js';
 import * as cargos from './cargos/client.js';
 import { buildCsv, buildFilename, buildPecSubject } from './cargos/csv.js';
+import * as pec from './cargos/pec.js';
 import {
   audit,
   saveContract,
@@ -500,6 +501,61 @@ router.post('/contracts/csv-batch', (req, res) => {
     instructions:
       'Inviare via PEC alla Questura competente con oggetto specificato. Conservare ricevuta di consegna.',
   });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PEC AUTOMATICA — predisposta ma SPENTA di default (PEC_AUTO_ENABLED!=='true').
+// Si attiva più avanti senza modifiche al codice, solo impostando le env su Render.
+// ═══════════════════════════════════════════════════════════════════
+
+// Stato della PEC automatica (per diagnostica / pannello frontend).
+router.get('/pec/status', (_req, res) => {
+  res.json({
+    ok: true,
+    autoEnabled: pec.isPecAutoEnabled(),     // interruttore generale
+    configured: pec.isPecConfigured(),       // credenziali + destinatario presenti
+    to: config.questuraPec || null,
+  });
+});
+
+// Verifica connessione + credenziali SMTP SENZA inviare nulla (per la predisposizione).
+router.post('/pec/verify', async (_req, res, next) => {
+  try {
+    // Endpoint diagnostico: sempre 200, l'esito è nel campo `ok` (così durante la
+    // predisposizione "non configurata" non genera falsi 5xx nei log).
+    res.json(await pec.verifyPec());
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Invia i contratti indicati alla Questura via PEC. INVIA DAVVERO solo se l'interruttore
+// è acceso (PEC_AUTO_ENABLED=true) E le credenziali ci sono → doppia sicurezza.
+router.post('/contracts/send-pec', async (req, res, next) => {
+  try {
+    if (!pec.isPecAutoEnabled()) {
+      return res.status(409).json({
+        ok: false, error: 'pec_auto_non_attiva',
+        hint: 'PEC automatica spenta. Impostare PEC_AUTO_ENABLED=true (+ PEC_USER/PEC_PASS) su Render per attivarla.',
+      });
+    }
+    if (!pec.isPecConfigured()) {
+      return res.status(409).json({ ok: false, error: 'pec_non_configurata', hint: 'Mancano PEC_USER/PEC_PASS o QUESTURA_PEC.' });
+    }
+    const parsed = z.array(z.string()).min(1).max(100).safeParse(req.body?.ids);
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: 'ids non validi', detail: formatErrors(parsed.error) });
+    }
+    const records = parsed.data.map((id) => getContract(id)).filter(Boolean).map((c) => c.payload);
+    if (records.length === 0) return res.status(400).json({ ok: false, error: 'no_valid_contracts' });
+
+    const result = await pec.sendCargosPec(records);
+    audit({ operatorId: operatorOf(req), action: 'cargos.pec.sent', requestIp: req.ip, details: { count: records.length, messageId: result.messageId } });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    logger.error({ err: err.message }, 'pec.send.error');
+    res.status(502).json({ ok: false, error: 'pec_send_error', detail: err.message });
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════════

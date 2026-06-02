@@ -94,4 +94,15 @@ export const config = {
     portLat: parseFloat(process.env.LAMPEDUSA_PORT_LAT || '35.4992'),
     portLon: parseFloat(process.env.LAMPEDUSA_PORT_LON || '12.6065'),
   },
+  // PEC automatica — invio CARGOS via PEC (SMTP Aruba). PREDISPOSTA MA SPENTA:
+  // l'invio reale è possibile SOLO con autoEnabled=true (interruttore generale,
+  // default false) + credenziali. Si attiva più avanti impostando le env su Render.
+  // Destinatario = questuraPec (già impostato). .trim() su host/user per robustezza copia-incolla.
+  pec: {
+    autoEnabled: process.env.PEC_AUTO_ENABLED === 'true',
+    host: (process.env.PEC_SMTP_HOST || 'smtps.pec.aruba.it').trim(),
+    port: parseInt(process.env.PEC_SMTP_PORT || '465', 10),
+    user: (process.env.PEC_USER || '').trim(),
+    pass: process.env.PEC_PASS || '',
+  },
 };
