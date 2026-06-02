@@ -87,6 +87,9 @@ export const config = {
   // Navi (traghetti/aliscafi) per Lampedusa — tracking AIS via VesselAPI.
   // Lista MMSI configurabile: default = traghetti Siremar Sansovino + Cossyra.
   marine: {
+    // AISStream.io — sorgente AIS LIVE gratuita (WebSocket), preferita.
+    // Chiave gratuita su https://aisstream.io (login GitHub → genera key).
+    aisStreamKey: (process.env.AISSTREAM_KEY || '').replace(/\s/g, ''),
     vesselApiKey: process.env.VESSELAPI_KEY || '',
     vesselApiBase: process.env.VESSELAPI_BASE || 'https://api.vesselapi.com/v1',
     vesselsMmsi: (process.env.LAMPEDUSA_VESSELS_MMSI || '247387300,247010100')

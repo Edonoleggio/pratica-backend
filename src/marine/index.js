@@ -12,6 +12,8 @@
 
 import { config } from '../config.js';
 import { logger } from '../logger.js';
+import { getSchedule } from './timetable.js';
+import { fetchAisStreamVessels } from './aisstream.js';
 
 // TTL cache: il free tier VesselAPI ha quota mensile bassa → cache lunga
 // (default 30 min, da env MARINE_CACHE_MIN) per non bruciarla (http_429).
@@ -99,73 +101,88 @@ async function fetchVessel(mmsi, key, base) {
   };
 }
 
+// Trasforma una posizione AIS grezza ({mmsi,name,lat,lon,sog,cog,navStatus,
+// timestamp,eta?,destination?}) nel record arricchito (distanza, stato, ETA).
+function processVessel(v, port) {
+  if (!v || v.lat == null || v.lon == null) {
+    return { mmsi: v?.mmsi, name: v?.name || '', kind: vesselKind(v?.name), ok: false, error: v?.error || 'no_position' };
+  }
+  const distKm = Math.round(distanceKm(v.lat, v.lon, port.lat, port.lon));
+  const brgToPort = bearing(v.lat, v.lon, port.lat, port.lon);
+  const cog = v.cog == null ? null : Number(v.cog);
+  const ts = v.timestamp ? new Date(v.timestamp).getTime() : null;
+  const ageMin = ts ? Math.round((Date.now() - ts) / 60000) : null;
+  const stale = ageMin != null && ageMin > 180;
+  const diff = cog == null ? 999 : Math.min(Math.abs(cog - brgToPort), 360 - Math.abs(cog - brgToPort));
+  const moving = (v.sog ?? 0) > 2;
+  const approaching = moving && diff <= 55;
+  const atPort = distKm <= 3 && (v.sog ?? 0) < 1.5;
+  let etaMin = null;
+  if (approaching && (v.sog ?? 0) > 0) etaMin = Math.round((distKm / (v.sog * 1.852)) * 60);
+  let stato = navLabel(v.navStatus);
+  if (atPort) stato = 'a Lampedusa';
+  else if (approaching) stato = 'in avvicinamento';
+  else if (!stato) stato = moving ? 'in navigazione' : 'ferma';
+  return {
+    mmsi: v.mmsi, name: v.name, kind: vesselKind(v.name), ok: true,
+    lat: v.lat, lon: v.lon, sog: v.sog, cog,
+    distanceKm: distKm, approaching, atPort, stato,
+    etaMin, etaAis: v.eta || null, destination: v.destination || null,
+    timestamp: v.timestamp, ageMin, stale,
+  };
+}
+
 export async function getLampedusaVessels() {
-  if (_cache && Date.now() - _cache.at < CACHE_TTL_MS) return { ..._cache.payload, cached: true };
-
-  const { vesselApiKey: key, vesselApiBase: base, vesselsMmsi, portLat, portLon } = config.marine;
+  const { vesselApiKey, vesselApiBase, vesselsMmsi, portLat, portLon, aisStreamKey } = config.marine;
   const port = { lat: portLat, lon: portLon, name: 'Porto di Lampedusa' };
+  const schedule = getSchedule(new Date().toISOString().slice(0, 10));   // orari: sempre presenti
 
-  if (!key || !vesselsMmsi.length) {
-    const payload = { ok: true, port, vessels: [], configured: false, generatedAt: new Date().toISOString() };
+  if (_cache && Date.now() - _cache.at < CACHE_TTL_MS) {
+    return { ..._cache.payload, schedule, cached: true };
+  }
+
+  // ── Sorgente LIVE preferita: AISStream (gratis, no quota) ──────────
+  if (aisStreamKey && vesselsMmsi.length) {
+    try {
+      const res = await fetchAisStreamVessels(vesselsMmsi, aisStreamKey, { windowMs: 9000 });
+      if (res.ok || res.vessels.length) {
+        const byMmsi = new Map(res.vessels.map((v) => [String(v.mmsi), v]));
+        const vessels = vesselsMmsi.map((m) =>
+          processVessel(byMmsi.get(String(m)) || { mmsi: m, ok: false, error: 'no_position' }, port));
+        const payload = { ok: true, port, vessels, schedule, source: 'aisstream', configured: true, generatedAt: new Date().toISOString() };
+        _cache = { at: Date.now(), payload };
+        if (vessels.some((v) => v.ok)) _lastGood = payload;
+        return payload;
+      }
+      logger.warn({ err: res.error }, 'aisstream.empty');
+    } catch (e) { logger.warn({ err: e.message }, 'aisstream.fail'); }
+    // se AISStream non dà nulla, prova VesselAPI sotto (se configurato)
+  }
+
+  // ── Fallback: VesselAPI (REST, free tier con quota → 429) ──────────
+  if (!vesselApiKey || !vesselsMmsi.length) {
+    const payload = { ok: true, port, vessels: [], schedule, configured: !!(aisStreamKey || vesselApiKey), generatedAt: new Date().toISOString() };
     _cache = { at: Date.now(), payload };
     return payload;
   }
-
-  // Backoff dopo 429: se la quota è esaurita, NON martellare l'API. Serви
-  // l'ultima posizione buona (se c'è), altrimenti segnala il limite raggiunto.
   if (Date.now() < _rateLimitedUntil) {
-    if (_lastGood) return { ..._lastGood, cached: true, rateLimited: true };
-    return { ok: true, port, vessels: [], configured: true, rateLimited: true, generatedAt: new Date().toISOString() };
+    if (_lastGood) return { ..._lastGood, schedule, cached: true, rateLimited: true };
+    return { ok: true, port, vessels: [], schedule, configured: true, rateLimited: true, generatedAt: new Date().toISOString() };
   }
-
   const results = await Promise.all(
-    vesselsMmsi.map((m) => fetchVessel(m, key, base).catch((e) => ({ mmsi: m, ok: false, error: e.message })))
+    vesselsMmsi.map((m) => fetchVessel(m, vesselApiKey, vesselApiBase).catch((e) => ({ mmsi: m, ok: false, error: e.message })))
   );
-
-  // Quota esaurita (tutte 429): attiva il backoff e riusa l'ultima posizione buona.
   const allRateLimited = results.length > 0 && results.every((v) => v.error === 'http_429');
   if (allRateLimited) {
     _rateLimitedUntil = Date.now() + RATELIMIT_BACKOFF_MS;
-    if (_lastGood) { _cache = { at: Date.now(), payload: _lastGood }; return { ..._lastGood, cached: true, rateLimited: true }; }
-    const payload = { ok: true, port, vessels: [], configured: true, rateLimited: true, generatedAt: new Date().toISOString() };
+    if (_lastGood) { _cache = { at: Date.now(), payload: _lastGood }; return { ..._lastGood, schedule, cached: true, rateLimited: true }; }
+    const payload = { ok: true, port, vessels: [], schedule, configured: true, rateLimited: true, generatedAt: new Date().toISOString() };
     _cache = { at: Date.now(), payload };
     return payload;
   }
-
-  const vessels = results.map((v) => {
-    if (!v.ok || v.lat == null || v.lon == null) {
-      return { mmsi: v.mmsi, name: v.name || '', kind: vesselKind(v.name), ok: false, error: v.error || 'no_position' };
-    }
-    const distKm = Math.round(distanceKm(v.lat, v.lon, port.lat, port.lon));
-    const brgToPort = bearing(v.lat, v.lon, port.lat, port.lon);
-    const cog = v.cog == null ? null : Number(v.cog);
-    // Freschezza posizione: l'AIS può essere vecchio (la nave era fuori copertura)
-    const ts = v.timestamp ? new Date(v.timestamp).getTime() : null;
-    const ageMin = ts ? Math.round((Date.now() - ts) / 60000) : null;
-    const stale = ageMin != null && ageMin > 180;   // > 3h → posizione non recente
-    // "in avvicinamento" se si muove (>2 nodi) e la rotta punta verso il porto (±55°)
-    const diff = cog == null ? 999 : Math.min(Math.abs(cog - brgToPort), 360 - Math.abs(cog - brgToPort));
-    const moving = (v.sog ?? 0) > 2;
-    const approaching = moving && diff <= 55;
-    const atPort = distKm <= 3 && (v.sog ?? 0) < 1.5;
-    // ETA stimata dalla distanza/velocità se in avvicinamento (1 nodo = 1.852 km/h)
-    let etaMin = null;
-    if (approaching && (v.sog ?? 0) > 0) etaMin = Math.round((distKm / (v.sog * 1.852)) * 60);
-    let stato = navLabel(v.navStatus);
-    if (atPort) stato = 'a Lampedusa';
-    else if (approaching) stato = 'in avvicinamento';
-    else if (!stato) stato = moving ? 'in navigazione' : 'ferma';
-    return {
-      mmsi: v.mmsi, name: v.name, kind: vesselKind(v.name), ok: true,
-      lat: v.lat, lon: v.lon, sog: v.sog, cog,
-      distanceKm: distKm, approaching, atPort, stato,
-      etaMin, etaAis: v.eta || null, destination: v.destination || null,
-      timestamp: v.timestamp, ageMin, stale,
-    };
-  });
-
-  const payload = { ok: true, port, vessels, configured: true, generatedAt: new Date().toISOString() };
+  const vessels = results.map((v) => processVessel(v, port));
+  const payload = { ok: true, port, vessels, schedule, source: 'vesselapi', configured: true, generatedAt: new Date().toISOString() };
   _cache = { at: Date.now(), payload };
-  if (vessels.some((v) => v.ok)) _lastGood = payload;   // memorizza per il backoff 429
+  if (vessels.some((v) => v.ok)) _lastGood = payload;
   return payload;
 }
