@@ -24,6 +24,39 @@ let _cache = null;                       // { at, payload }
 let _lastGood = null;                    // ultimo payload con posizioni valide
 let _rateLimitedUntil = 0;               // timestamp: non interrogare l'API prima di questo istante
 
+// ── AISStream: posizioni PERSISTENTI per MMSI ──────────────────────
+// AIS è "a impulsi": una nave ferma trasmette ogni ~3 min. Per non perderla
+// tra un impulso e l'altro, memorizziamo l'ULTIMA posizione vista di ciascuna
+// nave e la rinfreschiamo in BACKGROUND (non blocca la risposta HTTP, che
+// deve stare sotto i 15s del timeout frontend). Gratis → ricontrollo frequente.
+const _positions = new Map();            // mmsi → { mmsi,name,lat,lon,sog,cog,navStatus,timestamp }
+let _aisLastCollect = 0;
+let _aisRefreshing = false;
+const AIS_REFRESH_MS = 3 * 60 * 1000;    // ricolleziona se l'ultima raccolta è > 3 min fa
+const AIS_WINDOW_MS = 22000;             // ascolta 22s (in background) per catturare anche le navi ferme
+
+async function collectAis(mmsis, key) {
+  if (_aisRefreshing) return;
+  _aisRefreshing = true;
+  try {
+    const res = await fetchAisStreamVessels(mmsis, key, { windowMs: AIS_WINDOW_MS });
+    for (const v of res.vessels || []) {
+      const id = String(v.mmsi);
+      const prev = _positions.get(id) || { mmsi: id };
+      if (v.lat != null && v.lon != null) {
+        _positions.set(id, { ...prev, ...v, mmsi: id });   // posizione fresca → aggiorna
+      } else if (v.name) {
+        _positions.set(id, { ...prev, name: v.name });     // solo nome (ShipStaticData)
+      }
+    }
+    _aisLastCollect = Date.now();
+  } catch (e) {
+    logger.warn({ err: e.message }, 'aisstream.collect.fail');
+  } finally {
+    _aisRefreshing = false;
+  }
+}
+
 const toRad = (d) => (d * Math.PI) / 180;
 const toDeg = (r) => (r * 180) / Math.PI;
 
@@ -137,26 +170,25 @@ export async function getLampedusaVessels() {
   const port = { lat: portLat, lon: portLon, name: 'Porto di Lampedusa' };
   const schedule = getSchedule(new Date().toISOString().slice(0, 10));   // orari: sempre presenti
 
-  if (_cache && Date.now() - _cache.at < CACHE_TTL_MS) {
-    return { ..._cache.payload, schedule, cached: true };
+  // ── Sorgente LIVE preferita: AISStream (gratis, no quota) ──────────
+  // Risposta SEMPRE immediata dalle posizioni memorizzate; la raccolta AIS
+  // (22s) gira in BACKGROUND e non blocca l'HTTP. Le posizioni persistono tra
+  // un impulso AIS e l'altro → le navi restano visibili anche da ferme.
+  if (aisStreamKey && vesselsMmsi.length) {
+    if (!_aisRefreshing && Date.now() - _aisLastCollect > AIS_REFRESH_MS) {
+      collectAis(vesselsMmsi, aisStreamKey);   // fire-and-forget (no await)
+    }
+    const vessels = vesselsMmsi.map((m) =>
+      processVessel(_positions.get(String(m)) || { mmsi: m, ok: false, error: 'no_position' }, port));
+    return {
+      ok: true, port, vessels, schedule, source: 'aisstream', configured: true,
+      collecting: _positions.size === 0 || _aisRefreshing,   // hint: prima raccolta in corso
+      generatedAt: new Date().toISOString(),
+    };
   }
 
-  // ── Sorgente LIVE preferita: AISStream (gratis, no quota) ──────────
-  if (aisStreamKey && vesselsMmsi.length) {
-    try {
-      const res = await fetchAisStreamVessels(vesselsMmsi, aisStreamKey, { windowMs: 9000 });
-      if (res.ok || res.vessels.length) {
-        const byMmsi = new Map(res.vessels.map((v) => [String(v.mmsi), v]));
-        const vessels = vesselsMmsi.map((m) =>
-          processVessel(byMmsi.get(String(m)) || { mmsi: m, ok: false, error: 'no_position' }, port));
-        const payload = { ok: true, port, vessels, schedule, source: 'aisstream', configured: true, generatedAt: new Date().toISOString() };
-        _cache = { at: Date.now(), payload };
-        if (vessels.some((v) => v.ok)) _lastGood = payload;
-        return payload;
-      }
-      logger.warn({ err: res.error }, 'aisstream.empty');
-    } catch (e) { logger.warn({ err: e.message }, 'aisstream.fail'); }
-    // se AISStream non dà nulla, prova VesselAPI sotto (se configurato)
+  if (_cache && Date.now() - _cache.at < CACHE_TTL_MS) {
+    return { ..._cache.payload, schedule, cached: true };
   }
 
   // ── Fallback: VesselAPI (REST, free tier con quota → 429) ──────────
