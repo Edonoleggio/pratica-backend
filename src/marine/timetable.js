@@ -14,16 +14,28 @@
 // ═══════════════════════════════════════════════════════════════════
 
 const DEFAULT_SERVICES = [
-  // Traghetto Siremar — Porto Empedocle ⇄ Lampedusa (traversata ~9h30, notturna)
+  // Traghetto Siremar SANSOVINO — corsa NOTTURNA (orari confermati da Alessandra;
+  // arrivo stimato sulla traversata ~9h30, Porto Empedocle⇄Lampedusa).
   {
-    id: 'siremar-pe-lmp', vessel: 'Traghetto Siremar', operator: 'Siremar', kind: 'traghetto',
+    id: 'siremar-sansovino-arr', vessel: 'Sansovino', operator: 'Siremar', kind: 'traghetto',
     fromName: 'Porto Empedocle', toName: 'Lampedusa', mmsi: '247387300',
-    days: 'daily', depart: '23:59', arrive: '08:30', arriveNextDay: true, indicative: true,
+    days: 'daily', depart: '23:00', arrive: '08:30', arriveNextDay: true, indicative: false,
   },
   {
-    id: 'siremar-lmp-pe', vessel: 'Traghetto Siremar', operator: 'Siremar', kind: 'traghetto',
+    id: 'siremar-sansovino-dep', vessel: 'Sansovino', operator: 'Siremar', kind: 'traghetto',
     fromName: 'Lampedusa', toName: 'Porto Empedocle', mmsi: '247387300',
-    days: 'daily', depart: '10:15', arrive: '19:45', indicative: true,
+    days: 'daily', depart: '11:00', arrive: '20:30', indicative: false,
+  },
+  // Traghetto Siremar COSSYRA — corsa DIURNA (orari confermati da Alessandra).
+  {
+    id: 'siremar-cossyra-arr', vessel: 'Cossyra', operator: 'Siremar', kind: 'traghetto',
+    fromName: 'Porto Empedocle', toName: 'Lampedusa', mmsi: '247010100',
+    days: 'daily', depart: '09:30', arrive: '19:00', indicative: false,
+  },
+  {
+    id: 'siremar-cossyra-dep', vessel: 'Cossyra', operator: 'Siremar', kind: 'traghetto',
+    fromName: 'Lampedusa', toName: 'Porto Empedocle', mmsi: '247010100',
+    days: 'daily', depart: '20:00', arrive: '05:30', indicative: false,
   },
   // Aliscafo Liberty Lines — Linosa ⇄ Lampedusa (Gianluca M)
   {
