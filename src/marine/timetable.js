@@ -127,4 +127,15 @@ export function getSchedule(dateISO) {
   return out;
 }
 
+// Mappa mmsi → { name, kind } dai servizi caricati (env o default): i NOMI delle
+// navi sono noti dagli orari anche quando l'AIS non dà posizione (copertura
+// terrestre scarsa a Lampedusa) — mai più "MMSI 247…" nudo in interfaccia.
+export function getVesselNames() {
+  const map = {};
+  loadServices().forEach((s) => {
+    if (s.mmsi && s.vessel && !map[String(s.mmsi)]) map[String(s.mmsi)] = { name: s.vessel, kind: s.kind || 'nave' };
+  });
+  return map;
+}
+
 export const _internal = { DEFAULT_SERVICES, romeWallToUtcIso };

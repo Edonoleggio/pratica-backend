@@ -12,7 +12,7 @@
 
 import { config } from '../config.js';
 import { logger } from '../logger.js';
-import { getSchedule } from './timetable.js';
+import { getVesselNames, getSchedule } from './timetable.js';
 import { fetchAisStreamVessels } from './aisstream.js';
 
 // TTL cache: il free tier VesselAPI ha quota mensile bassa → cache lunga
@@ -178,8 +178,13 @@ export async function getLampedusaVessels() {
     if (!_aisRefreshing && Date.now() - _aisLastCollect > AIS_REFRESH_MS) {
       collectAis(vesselsMmsi, aisStreamKey);   // fire-and-forget (no await)
     }
-    const vessels = vesselsMmsi.map((m) =>
-      processVessel(_positions.get(String(m)) || { mmsi: m, ok: false, error: 'no_position' }, port));
+    const nomi = getVesselNames();   // nome/kind noti dagli orari, anche senza posizione AIS
+    const vessels = vesselsMmsi.map((m) => {
+      const v = processVessel(_positions.get(String(m)) || { mmsi: m, ok: false, error: 'no_position' }, port);
+      const info = nomi[String(m)];
+      if (info && !v.name) { v.name = info.name; v.kind = info.kind; }
+      return v;
+    });
     return {
       ok: true, port, vessels, schedule, source: 'aisstream', configured: true,
       collecting: _positions.size === 0 || _aisRefreshing,   // hint: prima raccolta in corso
