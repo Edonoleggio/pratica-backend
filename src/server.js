@@ -109,6 +109,23 @@ if (config.env !== 'test') {
   }, 2000).unref();
 }
 
+// ── KEEP-ALIVE (root-fix "voli/navi non funzionano quasi mai", 11/6/2026) ──
+// Render free addormenta il servizio dopo 15 min senza traffico → cold start
+// 30-60s → i feed dell'app vanno in timeout a ogni apertura e il collettore AIS
+// (posizioni navi, in memoria) muore. L'auto-ping sul PROPRIO URL PUBBLICO
+// (Render lo fornisce in RENDER_EXTERNAL_URL) è traffico in ingresso vero →
+// il timer di sleep si azzera e il servizio resta sveglio 24/7 (free tier:
+// 750 ore-istanza/mese = un servizio sempre acceso, ci sta esatto).
+// In locale/test RENDER_EXTERNAL_URL non esiste → non fa nulla.
+if (config.env !== 'test' && process.env.RENDER_EXTERNAL_URL) {
+  const keepAliveUrl = `${process.env.RENDER_EXTERNAL_URL.replace(/\/$/, '')}/api/health`;
+  setInterval(() => {
+    fetch(keepAliveUrl, { signal: AbortSignal.timeout(20_000) })
+      .catch((err) => logger.warn({ err: err.message }, 'keepalive.ping.failed'));
+  }, 10 * 60 * 1000).unref();
+  logger.info({ url: keepAliveUrl }, 'keepalive.enabled');
+}
+
 const shutdown = (signal) => { logger.info({ signal }, 'shutdown.start'); server.close(() => { logger.info('shutdown.complete'); process.exit(0); }); setTimeout(() => process.exit(1), 10_000).unref(); };
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
