@@ -37,6 +37,7 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 import { getLampedusaArrivals } from './flights/index.js';
 import { getLampedusaVessels } from './marine/index.js';
+import { getAvvisiPelagie } from './marine/avvisi.js';
 import { scheduleContractsBackup, restoreContractsFromDriveIfEmpty } from './contracts-backup.js';
 
 export const router = Router();
@@ -169,7 +170,12 @@ router.get('/voli/lampedusa', async (req, res) => {
 // GET /api/navi/lampedusa → tracking AIS traghetti/aliscafi (vedi marine/index.js)
 router.get('/navi/lampedusa', async (_req, res) => {
   try {
-    res.json(await getLampedusaVessels());
+    // avvisi in parallelo, MAI bloccanti (degradano a [])
+    const [payload, avvisi] = await Promise.all([
+      getLampedusaVessels(),
+      getAvvisiPelagie().catch(() => []),
+    ]);
+    res.json({ ...payload, avvisi });
   } catch (err) {
     logger.error({ err: err.message }, 'navi.lampedusa.error');
     res.status(502).json({ ok: false, error: 'navi_error', detail: err.message });
