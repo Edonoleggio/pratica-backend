@@ -1,11 +1,10 @@
 // ═══════════════════════════════════════════════════════════════════
-// AVVISI Liberty Lines (corse sospese / variazioni) filtrati per le PELAGIE.
-// Fonte: pagina pubblica https://www.libertylines.it/avvisi/ — lista HTML
-// statica WordPress. Verificato il 12/6/2026: niente RSS, /wp-json/wp/v2/posts
-// vuoto → il parsing leggero dei titoli <h2|h3><a> è l'unica via; il dettaglio
-// di ogni avviso viene scaricato per capire se riguarda Lampedusa/Linosa.
-// (Caronte & Tourist carica gli avvisi via JavaScript → NON integrabile in modo
-// affidabile senza browser headless; documentato, non tentato.)
+// AVVISI corse (sospensioni/variazioni) filtrati per le PELAGIE — DUE fonti:
+// 1) Liberty Lines: https://www.libertylines.it/avvisi/ — lista HTML statica
+//    WordPress (niente RSS, wp-json vuoto → parsing titoli <h2|h3><a> + corpo).
+// 2) Caronte & Tourist (Siremar): https://www.carontetourist.it/it/avvisi —
+//    Next.js App Router: gli avvisi sono nell'HTML dentro il payload RSC
+//    (self.__next_f). Vedi getAvvisiCaronte più sotto.
 //
 // Robustezza: timeout 12s · cache lista 20 min · cache dettaglio 6h per URL ·
 // qualsiasi errore → ultima lista buona (o []) — /api/navi non si rompe MAI per
@@ -68,8 +67,47 @@ async function detailText(url) {
   return text;
 }
 
+// ── Caronte & Tourist: il sito è Next.js App Router → gli avvisi sono GIÀ
+// nell'HTML, dentro il payload RSC (self.__next_f), come record JSON con
+// escape: {\"title_notice\":{\"date\",\"title\"},\"config\":{\"archived\",\"destinations\"}}.
+// (Prima dichiarato "non fattibile" guardando solo i tag <a>: era una SCORCIATOIA —
+// regola #9 — l'indagine completa ha trovato i dati. archived:false = correnti.)
+const CT_URL = 'https://www.carontetourist.it/it/avvisi';
+const MESI_IT = { gennaio: '01', febbraio: '02', marzo: '03', aprile: '04', maggio: '05', giugno: '06', luglio: '07', agosto: '08', settembre: '09', ottobre: '10', novembre: '11', dicembre: '12' };
+function dataItToIso(txt) {
+  const m = String(txt || '').match(/(\d{1,2})\s+([a-zà]+)\s+(\d{4})/i);
+  if (!m || !MESI_IT[m[2].toLowerCase()]) return null;
+  return `${m[3]}-${MESI_IT[m[2].toLowerCase()]}-${String(m[1]).padStart(2, '0')}`;
+}
+let _ct = { at: 0, items: [] };
+async function getAvvisiCaronte() {
+  if (Date.now() - _ct.at < LIST_TTL_MS) return _ct.items;
+  try {
+    const html = await fetchText(CT_URL);
+    const flat = html.replace(/\\"/g, '"'); // de-escape del flight payload
+    const out = [];
+    const re = /\{"title_notice":\{"icon":"([^"]*)","date":"([^"]*)","title":"([^"]*)"\},"config":\{"archived":(true|false),"destinations":\[([^\]]*)\]/g;
+    for (const [, icon, dateTxt, title, archived, destRaw] of flat.matchAll(re)) {
+      if (archived === 'true') continue; // storico
+      const hay = (title + ' ' + destRaw).toLowerCase();
+      if (!/pelagie|lampedusa|linosa|empedocle/.test(hay)) continue;
+      out.push({
+        title: title.trim(),
+        url: CT_URL,
+        date: dataItToIso(dateTxt),
+        excerpt: dateTxt.replace(/\s+/g, ' ').trim() || null,
+        operator: icon === 'siremar' ? 'Siremar (C&T)' : 'Caronte & Tourist',
+      });
+    }
+    _ct = { at: Date.now(), items: out };
+    return out;
+  } catch {
+    return _ct.items || [];
+  }
+}
+
 export async function getAvvisiPelagie() {
-  if (Date.now() - _list.at < LIST_TTL_MS) return _list.items;
+  if (Date.now() - _list.at < LIST_TTL_MS) return mergeConCaronte(_list.items);
   try {
     const html = await fetchText(LIST_URL);
     const anchors = [...html.matchAll(/<h[23][^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([^<]+)<\/a>/g)].slice(0, MAX_AVVISI);
@@ -93,8 +131,14 @@ export async function getAvvisiPelagie() {
       });
     }
     _list = { at: Date.now(), items: out };
-    return out;
+    return mergeConCaronte(out);
   } catch {
-    return _list.items || []; // pagina giù/cambiata → degrada in silenzio
+    return mergeConCaronte(_list.items || []); // pagina giù/cambiata → degrada in silenzio
   }
+}
+
+// unisce Liberty Lines + Caronte (che non blocca mai: errori → [])
+async function mergeConCaronte(liberty) {
+  const ct = await getAvvisiCaronte().catch(() => []);
+  return [...(liberty || []), ...ct];
 }
