@@ -37,22 +37,43 @@ const DEFAULT_SERVICES = [
     fromName: 'Lampedusa', toName: 'Porto Empedocle', mmsi: '247010100',
     days: 'daily', depart: '20:00', arrive: '05:30', indicative: false,
   },
-  // Aliscafo Liberty Lines — Linosa ⇄ Lampedusa (Gianluca M)
+  // Aliscafi Liberty Lines — ORARI UFFICIALI "Isole Pelagie dal 1° giugno 2026"
+  // Fonte: libertylines.it/wp-content/uploads/2026/04/Orari_Pelagie_1Giugno_rev23.04_compressed.pdf
+  // (percorrenze dal PDF: LMP-Linosa 1h · Linosa-PE 3h · LMP-PE 4h15).
+  // Giorni: celle bianche = tutti i giorni; celle arancio = Lun-Mer-Ven-Sab-Dom → [0,1,3,5,6].
+  // NB: l'abbinamento NAVE⇄corsa non è nel PDF: Gianluca M/Adriana M restano dall'AIS
+  // (nomi verificati live l'11/6) — il nome serve solo a etichettare il mezzo via MMSI.
+  // Navetta Lampedusa ⇄ Linosa (tutti i giorni)
   {
-    id: 'll-linosa-lmp', vessel: 'Gianluca M', operator: 'Liberty Lines', kind: 'aliscafo',
-    fromName: 'Linosa', toName: 'Lampedusa', mmsi: '247090600',
-    days: 'daily', depart: '08:30', arrive: '09:30', indicative: true,
-  },
-  {
-    id: 'll-lmp-linosa', vessel: 'Gianluca M', operator: 'Liberty Lines', kind: 'aliscafo',
+    id: 'll-lmp-linosa-am', vessel: 'Gianluca M', operator: 'Liberty Lines', kind: 'aliscafo',
     fromName: 'Lampedusa', toName: 'Linosa', mmsi: '247090600',
-    days: 'daily', depart: '16:30', arrive: '17:30', indicative: true,
+    days: 'daily', depart: '09:15', arrive: '10:15', indicative: false,
   },
-  // Aliscafo Liberty Lines — Porto Empedocle ⇄ Linosa ⇄ Lampedusa (Adriana M, stagionale)
+  {
+    id: 'll-linosa-lmp-am', vessel: 'Gianluca M', operator: 'Liberty Lines', kind: 'aliscafo',
+    fromName: 'Linosa', toName: 'Lampedusa', mmsi: '247090600',
+    days: 'daily', depart: '10:30', arrive: '11:30', indicative: false,
+  },
+  {
+    id: 'll-lmp-linosa-pm', vessel: 'Gianluca M', operator: 'Liberty Lines', kind: 'aliscafo',
+    fromName: 'Lampedusa', toName: 'Linosa', mmsi: '247090600',
+    days: 'daily', depart: '17:15', arrive: '18:15', indicative: false,
+  },
+  {
+    id: 'll-linosa-lmp-pm', vessel: 'Gianluca M', operator: 'Liberty Lines', kind: 'aliscafo',
+    fromName: 'Linosa', toName: 'Lampedusa', mmsi: '247090600',
+    days: 'daily', depart: '18:30', arrive: '19:30', indicative: false,
+  },
+  // Corsa Porto Empedocle ⇄ Linosa ⇄ Lampedusa (Lun-Mer-Ven-Sab-Dom)
+  {
+    id: 'll-lmp-pe', vessel: 'Adriana M', operator: 'Liberty Lines', kind: 'aliscafo',
+    fromName: 'Lampedusa', toName: 'Porto Empedocle (via Linosa)', mmsi: '247413000',
+    days: [0, 1, 3, 5, 6], depart: '07:30', arrive: '11:45', indicative: false,
+  },
   {
     id: 'll-pe-lmp', vessel: 'Adriana M', operator: 'Liberty Lines', kind: 'aliscafo',
-    fromName: 'Porto Empedocle', toName: 'Lampedusa', mmsi: '247413000',
-    days: 'daily', depart: '14:00', arrive: '18:30', indicative: true,
+    fromName: 'Porto Empedocle (via Linosa)', toName: 'Lampedusa', mmsi: '247413000',
+    days: [0, 1, 3, 5, 6], depart: '14:30', arrive: '18:45', indicative: false,
   },
 ];
 
