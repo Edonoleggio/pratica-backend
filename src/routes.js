@@ -38,6 +38,7 @@ import { logger } from './logger.js';
 import { getLampedusaArrivals } from './flights/index.js';
 import { getLampedusaVessels } from './marine/index.js';
 import { getAvvisiPelagie } from './marine/avvisi.js';
+import { getMyMapsPlaces } from './strutture-mymaps.js';
 import { scheduleContractsBackup, restoreContractsFromDriveIfEmpty } from './contracts-backup.js';
 
 export const router = Router();
@@ -179,6 +180,18 @@ router.get('/navi/lampedusa', async (_req, res) => {
   } catch (err) {
     logger.error({ err: err.message }, 'navi.lampedusa.error');
     res.status(502).json({ ok: false, error: 'navi_error', detail: err.message });
+  }
+});
+
+// GET /api/strutture/mymaps → segnaposto dalla mappa Google My Maps del titolare
+// (env MYMAPS_MID; vedi src/strutture-mymaps.js). Read-only, mappa già pubblica.
+router.get('/strutture/mymaps', async (_req, res) => {
+  try {
+    const out = await getMyMapsPlaces();
+    res.status(out.ok || out.error === 'not_configured' ? 200 : 502).json(out);
+  } catch (err) {
+    logger.error({ err: err.message }, 'strutture.mymaps.error');
+    res.status(502).json({ ok: false, error: 'mymaps_error', detail: err.message });
   }
 });
 
