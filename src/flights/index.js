@@ -146,9 +146,18 @@ function mapAdbStatus(s) {
 // ─── Fonte 2: AeroDataBox (RapidAPI) ────────────────────────────────
 // GET /flights/airports/icao/{icao}/{from}/{to}?direction=Arrival
 // Max 12h per chiamata → due chiamate per coprire la giornata.
+// Cache interna ADB: l'aggregatore gira ogni 10 min e ADB fa 2 chiamate a giro →
+// senza cache propria la quota RapidAPI muore in pochi giorni (successo: count:0
+// silenzioso per quota esaurita, scoperto 13/6). Default 6h (4 fetch/dì = 8 req);
+// gli ERRORI si cacheano solo 30 min (per riprovare presto quando la quota torna).
+const ADB_CACHE_MIN = parseInt(process.env.ADB_CACHE_MIN || '360', 10);
+let _adbCache = null;   // { at, date, ttlMs, result }
 async function fetchAeroDataBox(dateISO) {
   const key = config.flights.aeroDataBoxKey;
   if (!key) return { enabled: false };
+  if (_adbCache && _adbCache.date === dateISO && Date.now() - _adbCache.at < _adbCache.ttlMs) {
+    return { ..._adbCache.result, cached: true };
+  }
   const host = 'aerodatabox.p.rapidapi.com';
   const fmt = (d) => d.toISOString().slice(0, 16);   // YYYY-MM-DDTHH:mm
   const halves = [
@@ -156,6 +165,8 @@ async function fetchAeroDataBox(dateISO) {
     [new Date(`${dateISO}T12:00:00Z`), new Date(`${dateISO}T23:59:00Z`)],
   ];
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const erroriHttp = [];
+  let mezzeOk = 0;
   try {
     const all = [];
     for (let h = 0; h < halves.length; h++) {
@@ -169,7 +180,8 @@ async function fetchAeroDataBox(dateISO) {
       }), SOURCE_TIMEOUT_MS, 'adb');
       let r = await doFetch();
       if (r.status === 429) { await sleep(1500); r = await doFetch(); }   // retry una volta su rate-limit
-      if (!r.ok) continue;
+      if (!r.ok) { erroriHttp.push('http_' + r.status); continue; }   // NIENTE più errori inghiottiti
+      mezzeOk++;
       const json = await r.json();
       for (const a of (json?.arrivals || [])) {
         const mv = a.arrival || a.movement || {};
@@ -190,9 +202,17 @@ async function fetchAeroDataBox(dateISO) {
         });
       }
     }
-    return { enabled: true, ok: true, flights: all };
+    // prima questo era SEMPRE ok:true anche con tutte le chiamate fallite (quota
+    // esaurita = 'count:0' invisibile). Ora: nessuna mezza riuscita → ok:false con l'errore.
+    const result = (mezzeOk === 0 && erroriHttp.length)
+      ? { enabled: true, ok: false, error: erroriHttp.join(','), flights: [] }
+      : { enabled: true, ok: true, flights: all, ...(erroriHttp.length ? { warn: erroriHttp.join(',') } : {}) };
+    _adbCache = { at: Date.now(), date: dateISO, ttlMs: (result.ok ? ADB_CACHE_MIN : 30) * 60 * 1000, result };
+    return result;
   } catch (err) {
-    return { enabled: true, ok: false, error: err.message, flights: [] };
+    const result = { enabled: true, ok: false, error: err.message, flights: [] };
+    _adbCache = { at: Date.now(), date: dateISO, ttlMs: 30 * 60 * 1000, result };
+    return result;
   }
 }
 
@@ -211,6 +231,8 @@ function mapAviationStackStatus(s) {
   if (t === 'incident' || t === 'diverted') return 'cancelled';
   return 'scheduled';   // scheduled / unknown
 }
+const AS_MAX_CALLS_DAY = parseInt(process.env.AVIATIONSTACK_MAX_CALLS_DAY || '3', 10);
+let _asBudget = { day: '', calls: 0 };
 async function fetchAviationStack(dateISO) {
   const key = config.flights.aviationStackKey;
   if (!key) return { enabled: false };
@@ -219,6 +241,18 @@ async function fetchAviationStack(dateISO) {
   if (_aviationStackCache && _aviationStackCache.date === dateISO && Date.now() - _aviationStackCache.at < ttl) {
     return { enabled: true, ok: true, flights: _aviationStackCache.flights, cached: true };
   }
+  // BUDGET giornaliero DURO: free tier ~100 call/MESE. Con la sola cache (240 min
+  // su Render) si arrivava a ~180/mese → quota esaurita a metà mese (matematica
+  // verificata 13/6). Oltre il budget: meglio servire la cache stantia che zero voli.
+  const oggi = new Date().toISOString().slice(0, 10);
+  if (_asBudget.day !== oggi) _asBudget = { day: oggi, calls: 0 };
+  if (_asBudget.calls >= AS_MAX_CALLS_DAY) {
+    if (_aviationStackCache) {
+      return { enabled: true, ok: true, flights: _aviationStackCache.flights, cached: true, stale: true, budget: 'esaurito' };
+    }
+    return { enabled: true, ok: false, error: 'daily_budget', flights: [] };
+  }
+  _asBudget.calls++;
   const base = 'http://api.aviationstack.com/v1/flights';
   const params = new URLSearchParams({ access_key: key, arr_iata: IATA(), limit: '100' });
   const url = `${base}?${params.toString()}`;
