@@ -16,15 +16,21 @@
 const DEFAULT_SERVICES = [
   // Traghetto Siremar SANSOVINO — corsa NOTTURNA (orari confermati da Alessandra;
   // arrivo stimato sulla traversata ~9h30, Porto Empedocle⇄Lampedusa).
+  // SOSTA DEL SABATO (confermata dall'utente 13/6/2026): il sabato il Sansovino è fermo.
+  // → niente partenza venerdì sera da Porto Empedocle (= niente arrivo sabato mattina a
+  //   Lampedusa: l'arrivo è gated sul giorno di ARRIVO, quindi si esclude il sabato);
+  // → niente partenza diurna del sabato da Lampedusa.
+  // days = [0,1,2,3,4,5] = tutti tranne sabato (6). NB: la partenza del sabato sera da
+  // Porto Empedocle (arrivo domenica) NON è soppressa, l'utente ha indicato solo il venerdì sera.
   {
     id: 'siremar-sansovino-arr', vessel: 'Sansovino', operator: 'Siremar', kind: 'traghetto',
     fromName: 'Porto Empedocle', toName: 'Lampedusa', mmsi: '247387300',
-    days: 'daily', depart: '23:00', arrive: '08:30', arriveNextDay: true, indicative: false,
+    days: [0, 1, 2, 3, 4, 5], depart: '23:00', arrive: '08:30', arriveNextDay: true, indicative: false,
   },
   {
     id: 'siremar-sansovino-dep', vessel: 'Sansovino', operator: 'Siremar', kind: 'traghetto',
     fromName: 'Lampedusa', toName: 'Porto Empedocle', mmsi: '247387300',
-    days: 'daily', depart: '11:00', arrive: '20:30', indicative: false,
+    days: [0, 1, 2, 3, 4, 5], depart: '11:00', arrive: '20:30', indicative: false,
   },
   // Traghetto Siremar COSSYRA — corsa DIURNA (orari confermati da Alessandra).
   {
