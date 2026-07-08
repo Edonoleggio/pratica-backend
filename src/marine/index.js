@@ -32,6 +32,7 @@ let _rateLimitedUntil = 0;               // timestamp: non interrogare l'API pri
 const _positions = new Map();            // mmsi → { mmsi,name,lat,lon,sog,cog,navStatus,timestamp }
 let _aisLastCollect = 0;
 let _aisRefreshing = false;
+let _aisDiag = null;                     // { at, ok, error, received } — esito ultima raccolta, esposto nel payload
 const AIS_REFRESH_MS = 3 * 60 * 1000;    // ricolleziona se l'ultima raccolta è > 3 min fa
 const AIS_WINDOW_MS = 22000;             // ascolta 22s (in background) per catturare anche le navi ferme
 
@@ -50,7 +51,13 @@ async function collectAis(mmsis, key) {
       }
     }
     _aisLastCollect = Date.now();
+    const received = (res.vessels || []).filter((v) => v.lat != null && v.lon != null).length;
+    _aisDiag = { at: new Date().toISOString(), ok: res.ok, error: res.error || null, received };
+    if (!res.ok || received === 0) {
+      logger.warn({ error: res.error || null, received }, 'aisstream.collect.error');
+    }
   } catch (e) {
+    _aisDiag = { at: new Date().toISOString(), ok: false, error: e.message, received: 0 };
     logger.warn({ err: e.message }, 'aisstream.collect.fail');
   } finally {
     _aisRefreshing = false;
@@ -188,6 +195,7 @@ export async function getLampedusaVessels() {
     return {
       ok: true, port, vessels, schedule, source: 'aisstream', configured: true,
       collecting: _positions.size === 0 || _aisRefreshing,   // hint: prima raccolta in corso
+      ais: _aisDiag,                                         // esito ultima raccolta (errore visibile, es. closed_1006 = chiave rifiutata)
       generatedAt: new Date().toISOString(),
     };
   }

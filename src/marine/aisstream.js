@@ -81,8 +81,11 @@ export function fetchAisStreamVessels(mmsis, key, { boundingBox = DEFAULT_BBOX, 
       if (wanted.size && [...wanted].every((m) => byMmsi.get(m)?.lat != null)) finish(null);
     });
 
-    ws.addEventListener('error', (ev) => { finish(ev?.message || 'ws_error'); });
-    ws.addEventListener('close', () => finish(null));
+    ws.addEventListener('error', (ev) => { finish(ev?.message || ev?.error?.message || 'ws_error'); });
+    // Chiusura PRIMA del timeout e senza aver ricevuto nulla = anomala (con
+    // chiave rifiutata AISStream droppa la connessione SENZA frame d'errore,
+    // close code 1006): va riportata, non trattata come fine pulita.
+    ws.addEventListener('close', (ev) => finish(byMmsi.size > 0 ? null : `closed_${ev?.code || 'unknown'}`));
   }).catch((e) => ({ ok: false, error: e.message, vessels: [] }));
 }
 
