@@ -13,7 +13,7 @@
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { getVesselNames, getSchedule } from './timetable.js';
-import { fetchAisStreamVessels } from './aisstream.js';
+import { startAisStreamPersistent } from './aisstream.js';
 
 // TTL cache: il free tier VesselAPI ha quota mensile bassa → cache lunga
 // (default 30 min, da env MARINE_CACHE_MIN) per non bruciarla (http_429).
@@ -24,44 +24,23 @@ let _cache = null;                       // { at, payload }
 let _lastGood = null;                    // ultimo payload con posizioni valide
 let _rateLimitedUntil = 0;               // timestamp: non interrogare l'API prima di questo istante
 
-// ── AISStream: posizioni PERSISTENTI per MMSI ──────────────────────
-// AIS è "a impulsi": una nave ferma trasmette ogni ~3 min. Per non perderla
-// tra un impulso e l'altro, memorizziamo l'ULTIMA posizione vista di ciascuna
-// nave e la rinfreschiamo in BACKGROUND (non blocca la risposta HTTP, che
-// deve stare sotto i 15s del timeout frontend). Gratis → ricontrollo frequente.
+// ── AISStream: connessione PERSISTENTE, posizioni per MMSI ─────────
+// AIS è "a impulsi" e la copertura alle Pelagie è rada: l'unica strategia
+// che non perde impulsi è ascoltare SEMPRE (una websocket aperta, gratis,
+// senza quota). Ogni impulso aggiorna _positions; la risposta HTTP legge
+// da lì ed è sempre immediata. Avviata pigramente alla prima richiesta.
 const _positions = new Map();            // mmsi → { mmsi,name,lat,lon,sog,cog,navStatus,timestamp }
-let _aisLastCollect = 0;
-let _aisRefreshing = false;
-let _aisDiag = null;                     // { at, ok, error, received } — esito ultima raccolta, esposto nel payload
-const AIS_REFRESH_MS = 3 * 60 * 1000;    // ricolleziona se l'ultima raccolta è > 3 min fa
-const AIS_WINDOW_MS = 22000;             // ascolta 22s (in background) per catturare anche le navi ferme
+let _aisClient = null;                   // handle { state(), stop() } della connessione persistente
 
-async function collectAis(mmsis, key) {
-  if (_aisRefreshing) return;
-  _aisRefreshing = true;
-  try {
-    const res = await fetchAisStreamVessels(mmsis, key, { windowMs: AIS_WINDOW_MS });
-    for (const v of res.vessels || []) {
-      const id = String(v.mmsi);
-      const prev = _positions.get(id) || { mmsi: id };
-      if (v.lat != null && v.lon != null) {
-        _positions.set(id, { ...prev, ...v, mmsi: id });   // posizione fresca → aggiorna
-      } else if (v.name) {
-        _positions.set(id, { ...prev, name: v.name });     // solo nome (ShipStaticData)
-      }
-    }
-    _aisLastCollect = Date.now();
-    const received = (res.vessels || []).filter((v) => v.lat != null && v.lon != null).length;
-    _aisDiag = { at: new Date().toISOString(), ok: res.ok, error: res.error || null, received };
-    if (!res.ok || received === 0) {
-      logger.warn({ error: res.error || null, received }, 'aisstream.collect.error');
-    }
-  } catch (e) {
-    _aisDiag = { at: new Date().toISOString(), ok: false, error: e.message, received: 0 };
-    logger.warn({ err: e.message }, 'aisstream.collect.fail');
-  } finally {
-    _aisRefreshing = false;
-  }
+function ensureAisClient(mmsis, key) {
+  if (_aisClient) return;
+  _aisClient = startAisStreamPersistent(mmsis, key, {
+    onUpdate: (u) => {
+      const prev = _positions.get(u.mmsi) || { mmsi: u.mmsi };
+      _positions.set(u.mmsi, { ...prev, ...u });
+    },
+    onLog: (msg, extra) => logger.warn(extra || {}, msg),
+  });
 }
 
 const toRad = (d) => (d * Math.PI) / 180;
@@ -178,13 +157,11 @@ export async function getLampedusaVessels() {
   const schedule = getSchedule(new Date().toISOString().slice(0, 10));   // orari: sempre presenti
 
   // ── Sorgente LIVE preferita: AISStream (gratis, no quota) ──────────
-  // Risposta SEMPRE immediata dalle posizioni memorizzate; la raccolta AIS
-  // (22s) gira in BACKGROUND e non blocca l'HTTP. Le posizioni persistono tra
-  // un impulso AIS e l'altro → le navi restano visibili anche da ferme.
+  // Risposta SEMPRE immediata dalle posizioni memorizzate; la connessione
+  // persistente ascolta in background e cattura OGNI impulso. Le posizioni
+  // persistono tra un impulso e l'altro → le navi restano visibili anche da ferme.
   if (aisStreamKey && vesselsMmsi.length) {
-    if (!_aisRefreshing && Date.now() - _aisLastCollect > AIS_REFRESH_MS) {
-      collectAis(vesselsMmsi, aisStreamKey);   // fire-and-forget (no await)
-    }
+    ensureAisClient(vesselsMmsi, aisStreamKey);
     const nomi = getVesselNames();   // nome/kind noti dagli orari, anche senza posizione AIS
     const vessels = vesselsMmsi.map((m) => {
       const v = processVessel(_positions.get(String(m)) || { mmsi: m, ok: false, error: 'no_position' }, port);
@@ -194,8 +171,8 @@ export async function getLampedusaVessels() {
     });
     return {
       ok: true, port, vessels, schedule, source: 'aisstream', configured: true,
-      collecting: _positions.size === 0 || _aisRefreshing,   // hint: prima raccolta in corso
-      ais: _aisDiag,                                         // esito ultima raccolta (errore visibile, es. closed_1006 = chiave rifiutata)
+      collecting: _positions.size === 0,   // hint: nessun impulso ancora catturato
+      ais: _aisClient.state(),             // diagnosi viva: connected/framesTotal/lastError/reconnects…
       generatedAt: new Date().toISOString(),
     };
   }
